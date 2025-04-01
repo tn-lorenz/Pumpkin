@@ -10,10 +10,10 @@ use tokio::sync::Mutex;
 pub struct OpenContainer {
     // TODO: unique id should be here
     // TODO: should this be uuid?
-    players: Vec<i32>,
-    container: Arc<Mutex<Box<dyn Container>>>,
-    location: Option<BlockPos>,
-    block: Option<Block>,
+    pub players: Vec<i32>,
+    pub container: Arc<Mutex<Box<dyn Container>>>,
+    pub location: Option<BlockPos>,
+    pub block: Option<Block>,
 }
 
 impl OpenContainer {

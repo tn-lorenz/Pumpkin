@@ -450,7 +450,7 @@ impl Player {
                     damage_type: DamageType::PLAYER_ATTACK,
                     cancelled: false,
                 },
-                attacker: event_entity,
+                attacker: event_entity.clone(),
                 cancelled: false,
             };
 
@@ -492,6 +492,8 @@ impl Player {
                 }
 
                 if config.swing {}
+
+                victim.get_entity().record_attacker(event_entity.clone()).await;
             }
 
             'cancelled: {
@@ -1130,6 +1132,7 @@ impl Player {
             self.clone(),
             default_message,
             DamageType::GENERIC, // Use a generic damage type
+            None,
         );
 
         event = PLUGIN_MANAGER.lock().await.fire(event).await;
@@ -1304,22 +1307,31 @@ impl Player {
     }
 
     pub async fn drop_held_item(self: &Arc<Self>, drop_stack: bool) {
-        let mut inv = self.inventory.lock().await;
-        if let Some(item_stack) = inv.held_item_mut() {
-            let drop_amount = if drop_stack { item_stack.item_count } else { 1 };
-
-            // Create an item stack clone for the event
-            let event_stack = ItemStack::new(drop_amount, item_stack.item.clone());
-
+        let item_to_drop = {
+            let mut inv = self.inventory.lock().await;
+            if let Some(item_stack) = inv.held_item_mut() {
+                let drop_amount = if drop_stack { item_stack.item_count } else { 1 };
+                // Create a clone before releasing the lock
+                Some((ItemStack::new(drop_amount, item_stack.item.clone()), drop_amount))
+            } else {
+                None
+            }
+        }; // Lock is released here
+    
+        // Only proceed if we have an item to drop
+        if let Some((event_stack, drop_amount)) = item_to_drop {
             send_cancellable! {{
                 PlayerDropItemEvent::new(
                     self.clone(),
                     event_stack
                 );
-
+    
                 'after: {
                     self.drop_item(event.item_stack.item.id, u32::from(event.item_stack.item_count))
                         .await;
+                    
+                    // Now acquire the lock again to decrease the stack
+                    let mut inv = self.inventory.lock().await;
                     inv.decrease_current_stack(drop_amount);
                 }
             }}
@@ -1604,10 +1616,17 @@ impl EntityBase for Player {
                     .get_player_by_uuid(self.gameprofile.id)
                     .await
                 {
+                    // Get the last attacker
+                    let attacker = self.living_entity.entity.get_last_attacker().await;
+
                     // Fire the death event
                     let mut event =
-                        PlayerDeathEvent::new(player_arc, TextComponent::text("noob"), damage_type);
-
+                        PlayerDeathEvent::new(
+                            player_arc,
+                            TextComponent::text("noob"),
+                            damage_type,
+                            attacker);
+                    
                     event = PLUGIN_MANAGER.lock().await.fire(event).await;
 
                     self.handle_killed(event.death_message).await;
@@ -1852,7 +1871,7 @@ impl Default for Abilities {
 }
 
 impl Abilities {
-    pub fn set_for_gamemode(&mut self, gamemode: GameMode) {
+    pub fn  set_for_gamemode(&mut self, gamemode: GameMode) {
         match gamemode {
             GameMode::Creative => {
                 // self.flying = false; // Start not flying

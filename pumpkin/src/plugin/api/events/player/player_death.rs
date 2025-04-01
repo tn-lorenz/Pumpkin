@@ -3,7 +3,7 @@ use pumpkin_macros::Event;
 use pumpkin_util::text::TextComponent;
 use std::sync::Arc;
 
-use crate::entity::player::Player;
+use crate::entity::{player::Player, EntityBase};
 
 use super::PlayerEvent;
 
@@ -21,6 +21,9 @@ pub struct PlayerDeathEvent {
 
     /// The type of the damage that killed the player.
     pub damage_type: DamageType,
+
+    /// The entity that caused the death, if any.
+    pub attacker: Option<Arc<dyn EntityBase>>,
 }
 
 impl PlayerDeathEvent {
@@ -33,11 +36,12 @@ impl PlayerDeathEvent {
     ///
     /// # Returns
     /// A new instance of `PlayerDeathEvent`.
-    pub fn new(player: Arc<Player>, death_message: TextComponent, damage_type: DamageType) -> Self {
+    pub fn new(player: Arc<Player>, death_message: TextComponent, damage_type: DamageType, attacker: Option<Arc<dyn EntityBase>>) -> Self {
         Self {
             player,
             death_message,
             damage_type,
+            attacker,
         }
     }
 
@@ -57,6 +61,23 @@ impl PlayerDeathEvent {
     #[must_use]
     pub fn get_death_message(&self) -> TextComponent {
         self.death_message.clone()
+    }
+
+    /// Gets the entity that caused the death, if any.
+    ///
+    /// # Returns
+    /// An optional reference to the entity that caused the death.
+    #[must_use]
+    pub fn get_attacker(&self) -> Option<&Arc<dyn EntityBase>> {
+        self.attacker.as_ref()
+    }
+    
+    /// Sets the entity that caused the death.
+    ///
+    /// # Arguments
+    /// - `attacker`: The entity that caused the death.
+    pub fn set_attacker(&mut self, attacker: Option<Arc<dyn EntityBase>>) {
+        self.attacker = attacker;
     }
 }
 

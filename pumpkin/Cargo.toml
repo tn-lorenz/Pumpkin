@@ -26,6 +26,7 @@ pumpkin-data = { path = "../pumpkin-data" }
 pumpkin-protocol = { path = "../pumpkin-protocol" }
 pumpkin-registry = { path = "../pumpkin-registry" }
 pumpkin-macros = { path = "../pumpkin-macros" }
+lazy_static = "1.4.0"
 
 log.workspace = true
 crossbeam.workspace = true

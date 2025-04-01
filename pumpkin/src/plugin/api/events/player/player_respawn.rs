@@ -46,6 +46,18 @@ impl PlayerRespawnEvent {
             pitch,
         }
     }
+
+    pub fn set_spawn_position(&mut self, position: Vector3<f64>) {
+        self.respawn_position = position;
+    }
+    
+    pub fn set_yaw(&mut self, yaw: f32) {
+        self.yaw = yaw;
+    }
+    
+    pub fn set_pitch(&mut self, pitch: f32) {
+        self.pitch = pitch;
+    }
 }
 
 impl PlayerEvent for PlayerRespawnEvent {

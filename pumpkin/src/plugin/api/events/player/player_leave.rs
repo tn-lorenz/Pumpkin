@@ -35,6 +35,10 @@ impl PlayerLeaveEvent {
             cancelled: false,
         }
     }
+
+    pub fn set_leave_message(&mut self, leave_message: TextComponent) {
+        self.leave_message = leave_message;
+    }
 }
 
 impl PlayerEvent for PlayerLeaveEvent {

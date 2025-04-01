@@ -41,6 +41,7 @@ mod title;
 mod transfer;
 mod weather;
 mod worldborder;
+mod text_display;
 
 #[must_use]
 pub fn default_dispatcher() -> CommandDispatcher {

@@ -1,4 +1,6 @@
 use std::sync::atomic::AtomicU8;
+use std::sync::Arc;
+use std::time::Instant;
 use std::{collections::HashMap, sync::atomic::AtomicI32};
 
 use crate::plugin::entity::entity_damage::EntityDamageEvent;
@@ -71,7 +73,7 @@ impl LivingEntity {
             )
             .await;
     }
-
+    
     /// Picks up and Item entity or XP Orb
     pub async fn pickup(&self, item: &Entity, stack_amount: u32) {
         // TODO: Only nearby

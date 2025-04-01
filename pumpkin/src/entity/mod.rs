@@ -28,11 +28,10 @@ use pumpkin_util::math::{
     wrap_degrees,
 };
 use serde::Serialize;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicI32, Ordering},
-};
-use tokio::sync::RwLock;
+use std::{sync::{
+    atomic::{AtomicBool, AtomicI32, Ordering}, Arc
+}, time::Instant};
+use tokio::sync::{Mutex, RwLock};
 
 use crate::world::World;
 
@@ -46,6 +45,7 @@ pub mod mob;
 pub mod player;
 pub mod projectile;
 pub mod tnt;
+pub mod text_display;
 
 mod combat;
 
@@ -123,6 +123,10 @@ pub struct Entity {
     pub invulnerable: AtomicBool,
     /// List of damage types this entity is immune to
     pub damage_immunities: Vec<DamageType>,
+    /// Tracks entity last tracker
+    pub last_attacker: Mutex<Option<(Arc<dyn EntityBase>, Instant)>>,
+    /// Time in milliseconds of last combat
+    pub combat_tracker_timeout: u64,
 }
 
 impl Entity {
@@ -169,7 +173,27 @@ impl Entity {
             bounding_box_size: AtomicCell::new(bounding_box_size),
             invulnerable: AtomicBool::new(invulnerable),
             damage_immunities: Vec::new(),
+            last_attacker: Mutex::new(None),
+            combat_tracker_timeout: 10000, // 10 seconds in milliseconds
         }
+    }
+
+    pub async fn record_attacker(&self, attacker: Arc<dyn EntityBase>) {
+        let mut last_attacker = self.last_attacker.lock().await;
+        *last_attacker = Some((attacker, Instant::now()));
+    }
+
+    pub async fn get_last_attacker(&self) -> Option<Arc<dyn EntityBase>> {
+        let last_attacker = self.last_attacker.lock().await;
+
+        if let Some((attacker, timestamp)) = last_attacker.as_ref() {
+            // Only consider the attacker responsible if they attacked recently
+            if timestamp.elapsed().as_millis() as u64 <= self.combat_tracker_timeout {
+                return Some(attacker.clone());
+            }
+        }
+
+        None
     }
 
     pub async fn set_velocity(&self, velocity: Vector3<f64>) {

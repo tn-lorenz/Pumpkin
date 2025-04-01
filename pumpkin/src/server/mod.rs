@@ -5,6 +5,7 @@ use crate::data::player_server_data::ServerPlayerData;
 use crate::entity::EntityId;
 use crate::item::registry::ItemRegistry;
 use crate::net::EncryptionError;
+use crate::plugin::container::container_api::ContainerClickListener;
 use crate::plugin::player::player_login::PlayerLoginEvent;
 use crate::plugin::server::server_broadcast::ServerBroadcastEvent;
 use crate::world::custom_bossbar::CustomBossbars;
@@ -27,6 +28,7 @@ use pumpkin_util::math::vector2::Vector2;
 use pumpkin_util::text::TextComponent;
 use pumpkin_world::dimension::Dimension;
 use rand::prelude::SliceRandom;
+use sha2::digest::block_buffer::Lazy;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::AtomicU32;
@@ -79,6 +81,7 @@ pub struct Server {
     /// Manages player data storage
     pub player_data_storage: ServerPlayerData,
     tasks: TaskTracker,
+    pub container_listeners: RwLock<HashMap<u64, Arc<dyn ContainerClickListener>>>,
 }
 
 impl Server {
@@ -139,6 +142,7 @@ impl Server {
                 Duration::from_secs(advanced_config().player_data.save_player_cron_interval),
             ),
             tasks: TaskTracker::new(),
+            container_listeners: RwLock::new(HashMap::new()),
         }
     }
 

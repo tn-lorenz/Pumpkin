@@ -1,4 +1,5 @@
 use crate::entity::player::Player;
+use crate::entity::EntityBase;
 use crate::server::Server;
 use pumpkin_data::item::Item;
 use pumpkin_data::screen::WindowType;
@@ -138,6 +139,23 @@ impl Player {
         }
 
         let click = Click::new(packet.mode, packet.button, packet.slot)?;
+        let player = server.get_player_by_uuid(self.get_entity().entity_uuid).await.unwrap();
+        if let Some(container_id) = self.open_container.load() {
+            // Use the container_api to process the click
+            let cancelled = crate::plugin::container::container_api::process_container_click(
+                player, 
+                &click,
+                container_id,
+                server.clone()
+            ).await;
+
+            // If the click was cancelled, update the container and return early
+            if cancelled {
+                self.set_container_content(opened_container.as_deref_mut()).await;
+                return Ok(());
+            }
+        }
+
         let (crafted_item, crafted_item_slot) = {
             let mut inventory = self.inventory().lock().await;
             let combined =
