@@ -18,6 +18,9 @@ pub struct ItemComponents {
     #[serde(rename = "minecraft:item_name")]
     // TODO: TextComponent
     pub item_name: Option<String>,
+    #[serde(rename = "minecraft:custom_name")]
+    // TODO: TextComponent
+    pub custom_name: Option<String>,
     #[serde(rename = "minecraft:max_stack_size")]
     pub max_stack_size: u8,
     #[serde(rename = "minecraft:jukebox_playable")]
@@ -47,6 +50,14 @@ impl ToTokens for ItemComponents {
             Some(d) => {
                 let item_name = LitStr::new(d, Span::call_site());
                 quote! { Some(#item_name) }
+            }
+            None => quote! { None },
+        };
+
+        let custom_name = match &self.custom_name {
+            Some(d) => {
+                let custom_name = LitStr::new(d, Span::call_site());
+                quote! { Some(#custom_name) }
             }
             None => quote! { None },
         };
@@ -151,6 +162,7 @@ impl ToTokens for ItemComponents {
         tokens.extend(quote! {
             ItemComponents {
                 item_name: #item_name,
+                custom_name: #custom_name,
                 max_stack_size: #max_stack_size,
                 jukebox_playable: #jukebox_playable,
                 damage: #damage,
@@ -261,6 +273,7 @@ pub(crate) fn build() -> TokenStream {
         #[derive(Clone, Copy, Debug)]
         pub struct ItemComponents {
             pub item_name: Option<&'static str>,
+            pub custom_name: Option<&'static str>,
             pub max_stack_size: u8,
             pub jukebox_playable: Option<JukeboxPlayable>,
             pub damage: Option<u16>,

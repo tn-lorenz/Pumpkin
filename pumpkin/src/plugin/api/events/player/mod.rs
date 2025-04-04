@@ -4,6 +4,7 @@ pub mod player_command_send;
 pub mod player_death;
 pub mod player_drop_item;
 pub mod player_gamemode_change;
+pub mod player_interact;
 pub mod player_join;
 pub mod player_leave;
 pub mod player_login;

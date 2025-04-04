@@ -1,13 +1,14 @@
 use std::num::NonZeroU8;
 use std::sync::Arc;
 
-use crate::block;
+use crate::{block, PLUGIN_MANAGER};
 use crate::block::registry::BlockActionResult;
 use crate::entity::mob;
 use crate::net::PlayerConfig;
 use crate::plugin::container::container_api::{ChestContainer, ContainerManager};
 use crate::plugin::player::player_chat::PlayerChatEvent;
 use crate::plugin::player::player_command_send::PlayerCommandSendEvent;
+use crate::plugin::player::player_interact::{PlayerInteractEvent};
 use crate::plugin::player::player_move::PlayerMoveEvent;
 use crate::plugin::player::player_toggle_sneak::PlayerToggleSneakEvent;
 use crate::plugin::player::player_toggle_sprint::PlayerToggleSprintEvent;
@@ -1312,12 +1313,35 @@ impl Player {
             .await;
     }
 
-    pub async fn handle_use_item(&self, _use_item: &SUseItem, server: &Server) {
+    pub async fn handle_use_item(self: &Arc<Self>, _use_item: &SUseItem, server: &Server) {
         if !self.has_client_loaded() {
             return;
         }
-        if let Some(held) = self.inventory().lock().await.held_item() {
-            server.item_registry.on_use(&held.item, self).await;
+        
+        // Get the held item first, but release the lock immediately
+        let held_item = {
+            let inventory = self.inventory().lock().await;
+            inventory.held_item().cloned()
+        };
+        
+        // Now work with the cloned item outside of the inventory lock
+        if let Some(held) = held_item {
+            let event = PlayerInteractEvent::new(
+                self.clone(),
+                held.clone(),
+                false,
+            );
+    
+            let event = PLUGIN_MANAGER
+                .lock()
+                .await
+                .fire::<PlayerInteractEvent>(event)
+                .await;
+            
+            // Only call on_use if the event wasn't cancelled
+            if !event.cancelled {
+                server.item_registry.on_use(&held.item, self).await;
+            }
         }
     }
 
