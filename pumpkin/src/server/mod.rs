@@ -29,6 +29,7 @@ use pumpkin_util::text::TextComponent;
 use pumpkin_world::dimension::Dimension;
 use rand::prelude::SliceRandom;
 use sha2::digest::block_buffer::Lazy;
+use rsa::RsaPublicKey;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::AtomicU32;
@@ -42,9 +43,10 @@ use tokio_util::task::TaskTracker;
 
 mod connection_cache;
 mod key_store;
+pub mod seasonal_events;
 pub mod ticker;
 
-pub const CURRENT_MC_VERSION: &str = "1.21.4";
+pub const CURRENT_MC_VERSION: &str = "1.21.5";
 
 /// Represents a Minecraft server instance.
 pub struct Server {
@@ -82,6 +84,9 @@ pub struct Server {
     pub player_data_storage: ServerPlayerData,
     tasks: TaskTracker,
     pub container_listeners: RwLock<HashMap<u64, Arc<dyn ContainerClickListener>>>,
+    /// Mojang's public keys, used for chat session signing
+    /// Pulled from Mojang API on startup
+    pub mojang_public_keys: Mutex<Vec<RsaPublicKey>>,
 }
 
 impl Server {
@@ -143,6 +148,7 @@ impl Server {
             ),
             tasks: TaskTracker::new(),
             container_listeners: RwLock::new(HashMap::new()),
+            mojang_public_keys: Mutex::new(Vec::new()),
         }
     }
 

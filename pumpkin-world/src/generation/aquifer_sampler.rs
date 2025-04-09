@@ -1,7 +1,7 @@
 use enum_dispatch::enum_dispatch;
 use pumpkin_util::{
     math::{clamped_map, floor_div, vector2::Vector2, vector3::Vector3},
-    random::RandomDeriver,
+    random::{RandomDeriver, RandomDeriverImpl, RandomImpl},
 };
 
 use crate::block::ChunkBlockState;
@@ -695,7 +695,7 @@ mod test {
         let surface_config = GENERATION_SETTINGS
             .get(&GeneratorSetting::Overworld)
             .unwrap();
-        let shape = &surface_config.noise;
+        let shape = &surface_config.shape;
         let chunk_pos = Vector2::new(7, 4);
         let sampler = FluidLevelSampler::Chunk(StandardChunkFluidLevelSampler::new(
             FluidLevel::new(63, WATER_BLOCK),

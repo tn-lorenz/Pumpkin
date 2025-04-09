@@ -90,7 +90,7 @@ impl OpenContainer {
     }
 }
 #[derive(Default)]
-pub struct Chest([Option<ItemStack>; 27]);
+pub struct Chest(pub [Option<ItemStack>; 27]);
 
 impl Chest {
     pub fn new() -> Self {

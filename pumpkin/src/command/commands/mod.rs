@@ -43,6 +43,9 @@ mod weather;
 mod worldborder;
 mod text_display;
 
+#[cfg(feature = "dhat-heap")]
+mod profile;
+
 #[must_use]
 pub fn default_dispatcher() -> CommandDispatcher {
     let mut dispatcher = CommandDispatcher::default();
@@ -90,6 +93,9 @@ pub fn default_dispatcher() -> CommandDispatcher {
     dispatcher.register(pardonip::init_command_tree(), PermissionLvl::Three);
     // Four
     dispatcher.register(stop::init_command_tree(), PermissionLvl::Four);
+
+    #[cfg(feature = "dhat-heap")]
+    dispatcher.register(profile::init_command_tree(), PermissionLvl::Four);
 
     dispatcher
 }

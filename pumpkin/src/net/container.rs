@@ -353,7 +353,7 @@ impl Player {
                                 *carried_item = None;
                             }
                         }
-                    };
+                    }
                 }
                 Ok(())
             }
@@ -481,7 +481,7 @@ impl Player {
                 }
             }
             container_click::Slot::OutsideInventory => (),
-        };
+        }
         Ok(())
     }
 

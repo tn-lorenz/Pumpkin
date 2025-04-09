@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use heck::ToShoutySnakeCase;
 use proc_macro2::{Span, TokenStream};
-use pumpkin_util::registry::RegistryEntryList;
+use pumpkin_util::{registry::RegistryEntryList, text::TextComponent};
 use quote::{ToTokens, format_ident, quote};
 use serde::Deserialize;
 use syn::{Ident, LitBool, LitFloat, LitInt, LitStr};
@@ -17,17 +17,20 @@ pub struct Item {
 pub struct ItemComponents {
     #[serde(rename = "minecraft:item_name")]
     // TODO: TextComponent
-    pub item_name: Option<String>,
+    pub item_name: Option<TextComponent>,
+    #[serde(rename = "minecraft:custom_name")]
+    // TODO: TextComponent
+    pub custom_name: Option<String>,
     #[serde(rename = "minecraft:max_stack_size")]
     pub max_stack_size: u8,
     #[serde(rename = "minecraft:jukebox_playable")]
-    pub jukebox_playable: Option<JukeboxPlayable>,
+    pub jukebox_playable: Option<String>,
     #[serde(rename = "minecraft:damage")]
     pub damage: Option<u16>,
     #[serde(rename = "minecraft:max_damage")]
     pub max_damage: Option<u16>,
     #[serde(rename = "minecraft:attribute_modifiers")]
-    pub attribute_modifiers: Option<AttributeModifiers>,
+    pub attribute_modifiers: Option<Vec<Modifier>>,
     #[serde(rename = "minecraft:tool")]
     pub tool: Option<ToolComponent>,
 }
@@ -37,16 +40,26 @@ impl ToTokens for ItemComponents {
         let max_stack_size = LitInt::new(&self.max_stack_size.to_string(), Span::call_site());
         let jukebox_playable = match &self.jukebox_playable {
             Some(playable) => {
-                let song = LitStr::new(&playable.song, Span::call_site());
-                quote! { Some(JukeboxPlayable { song: #song }) }
+                let song = LitStr::new(playable, Span::call_site());
+                quote! { Some(#song) }
             }
             None => quote! { None },
         };
 
-        let item_name = match &self.item_name {
+        let item_name = match self.item_name.clone() {
             Some(d) => {
-                let item_name = LitStr::new(d, Span::call_site());
+                // TODO: use text component
+                let text = d.get_text();
+                let item_name = LitStr::new(&text, Span::call_site());
                 quote! { Some(#item_name) }
+            }
+            None => quote! { None },
+        };
+
+        let custom_name = match &self.custom_name {
+            Some(d) => {
+                let custom_name = LitStr::new(d, Span::call_site());
+                quote! { Some(#custom_name) }
             }
             None => quote! { None },
         };
@@ -69,7 +82,7 @@ impl ToTokens for ItemComponents {
 
         let attribute_modifiers = match &self.attribute_modifiers {
             Some(modifiers) => {
-                let modifier_code = modifiers.modifiers.iter().map(|modifier| {
+                let modifier_code = modifiers.iter().map(|modifier| {
                     let r#type = LitStr::new(&modifier.r#type, Span::call_site());
                     let id = LitStr::new(&modifier.id, Span::call_site());
                     let amount = modifier.amount;
@@ -87,7 +100,7 @@ impl ToTokens for ItemComponents {
                         }
                     }
                 });
-                quote! { Some(AttributeModifiers { modifiers: &[#(#modifier_code),*] }) }
+                quote! { Some(&[#(#modifier_code),*]) }
             }
             None => quote! { None },
         };
@@ -151,6 +164,7 @@ impl ToTokens for ItemComponents {
         tokens.extend(quote! {
             ItemComponents {
                 item_name: #item_name,
+                custom_name: #custom_name,
                 max_stack_size: #max_stack_size,
                 jukebox_playable: #jukebox_playable,
                 damage: #damage,
@@ -173,16 +187,6 @@ pub struct ToolRule {
     blocks: RegistryEntryList,
     speed: Option<f32>,
     correct_for_drops: Option<bool>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct JukeboxPlayable {
-    pub song: String,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct AttributeModifiers {
-    pub modifiers: Vec<Modifier>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -261,22 +265,13 @@ pub(crate) fn build() -> TokenStream {
         #[derive(Clone, Copy, Debug)]
         pub struct ItemComponents {
             pub item_name: Option<&'static str>,
+            pub custom_name: Option<&'static str>,
             pub max_stack_size: u8,
-            pub jukebox_playable: Option<JukeboxPlayable>,
+            pub jukebox_playable: Option<&'static str>,
             pub damage: Option<u16>,
             pub max_damage: Option<u16>,
-            pub attribute_modifiers: Option<AttributeModifiers>,
+            pub attribute_modifiers: Option<&'static [Modifier]>,
             pub tool: Option<ToolComponent>
-        }
-
-        #[derive(Clone, Copy, Debug)]
-        pub struct JukeboxPlayable {
-            pub song: &'static str,
-        }
-
-        #[derive(Clone, Copy, Debug)]
-        pub struct AttributeModifiers {
-            pub modifiers: &'static [Modifier],
         }
 
         #[derive(Clone, Copy, Debug)]
@@ -314,7 +309,8 @@ pub(crate) fn build() -> TokenStream {
             #constants
 
             pub fn translated_name(&self) -> TextComponent {
-                serde_json::from_str(self.components.item_name.unwrap()).expect("Could not parse item name.")
+                // TODO
+                TextComponent::text(self.components.item_name.unwrap())
             }
 
             #[doc = "Try to parse an item from a resource location string."]
