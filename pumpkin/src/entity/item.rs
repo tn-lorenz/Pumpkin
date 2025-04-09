@@ -24,7 +24,7 @@ pub struct ItemEntity {
     // These cannot be atomic values because we mutate their state based on what they are; we run
     // into the ABA problem
     item_count: Mutex<u32>,
-    pickup_delay: Mutex<u8>,
+    pub pickup_delay: Mutex<u8>,
 }
 
 impl ItemEntity {
@@ -37,6 +37,29 @@ impl ItemEntity {
             ))
             .await;
         entity.yaw.store(rand::random::<f32>() * 360.0);
+        Self {
+            entity,
+            item: Item::from_id(item_id).expect("We passed a bad item id into ItemEntity"),
+            item_age: AtomicU32::new(0),
+            item_count: Mutex::new(count),
+            pickup_delay: Mutex::new(10), // Vanilla pickup delay is 10 ticks
+        }
+    }
+    pub async fn new_with_velocity(entity: Entity, item_id: u16, count: u32, velocity: Option<Vector3<f64>>) -> Self {
+        // If no velocity is provided, use a default randomized velocity
+        if let Some(vel) = velocity {
+            entity.set_velocity(vel).await;
+        } else {
+            entity.set_velocity(Vector3::new(
+                rand::random::<f64>() * 0.2 - 0.1,
+                0.2,
+                rand::random::<f64>() * 0.2 - 0.1,
+            )).await;
+        }
+        
+        // Randomize initial rotation
+        entity.yaw.store(rand::random::<f32>() * 360.0);
+        
         Self {
             entity,
             item: Item::from_id(item_id).expect("We passed a bad item id into ItemEntity"),

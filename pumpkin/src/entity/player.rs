@@ -1302,17 +1302,57 @@ impl Player {
     }
 
     pub async fn drop_item(&self, item_id: u16, count: u32) {
+        // Get the player's position and adjust for eye height
+        let player_pos = self.living_entity.entity.pos.load();
+        let eye_height = self.living_entity.entity.standing_eye_height;
+        let spawn_pos = Vector3::new(
+            player_pos.x,
+            player_pos.y + f64::from(eye_height) - 0.3,
+            player_pos.z
+        );
+        
+        // Create the entity at the adjusted position
         let entity = self
             .world()
             .await
-            .create_entity(self.living_entity.entity.pos.load(), EntityType::ITEM);
-
-        // TODO: Merge stacks together
-        let item_entity = Arc::new(ItemEntity::new(entity, item_id, count).await);
+            .create_entity(spawn_pos, EntityType::ITEM);
+        
+        // Get player's yaw in radians
+        let yaw_rad = f64::from(self.living_entity.entity.yaw.load().to_radians());
+        
+        // Calculate throw direction (this uses the opposite angle from the yaw because
+        // Minecraft's yaw is counter-intuitive - 0 is south, 90 is west)
+        // In Minecraft, yaw increases clockwise, so we need to negate the angle
+        let throw_direction_x = -yaw_rad.sin();
+        let throw_direction_z = yaw_rad.cos();
+        
+        // Apply fixed strength and randomize slightly
+        let strength = 0.5; // Higher value for stronger throw
+        let random_factor = 0.1;
+        
+        let velocity = Vector3::new(
+            throw_direction_x * strength + (rand::random::<f64>() - 0.5) * random_factor,
+            0.25, // Fixed upward velocity
+            throw_direction_z * strength + (rand::random::<f64>() - 0.5) * random_factor
+        );
+        
+        // Create and spawn the entity
+        let item_entity = Arc::new(ItemEntity::new_with_velocity(
+            entity, 
+            item_id, 
+            count,
+            Some(velocity)
+        ).await);
+        
+        // Set pickup delay
+        if let Ok(mut delay) = item_entity.pickup_delay.try_lock() {
+            *delay = 40;
+        }
+        
         self.world().await.spawn_entity(item_entity.clone()).await;
         item_entity.send_meta_packet().await;
     }
-
+    
     pub async fn drop_held_item(self: &Arc<Self>, drop_stack: bool) {
         let item_to_drop = {
             let mut inv = self.inventory.lock().await;

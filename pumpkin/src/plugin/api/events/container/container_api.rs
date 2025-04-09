@@ -197,6 +197,7 @@ impl ContainerManager {
         // Step 1: Set up the container UI
         {
             let mut inventory = player.inventory().lock().await;
+
             inventory.increment_state_id();
             inventory.total_opened_containers += 1;
             
@@ -210,7 +211,7 @@ impl ContainerManager {
                 ))
                 .await;
         } // Release inventory lock
-        
+
         // Step 2: Set the container content
         {
             let container = player.get_open_container(&self.server).await;
