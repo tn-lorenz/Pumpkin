@@ -39,7 +39,7 @@ impl EntityDamageByEntityEvent {
     ) -> Self {
         Self {
             base_event: EntityDamageEvent::new(victim, damage, damage_type),
-            attacker: attacker as Arc<dyn EntityBase>,
+            attacker: attacker,
             cancelled: false,
         }
     }
