@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use crossbeam::atomic::AtomicCell;
 use log::warn;
-use pumpkin::plugin::player::player_death::PlayerDeathEvent;
+use crate::plugin::player::player_death::PlayerDeathEvent;
 use pumpkin_config::{BASIC_CONFIG, advanced_config};
 use pumpkin_data::damage::DamageType;
 use pumpkin_data::entity::{EffectType, EntityPose, EntityStatus, EntityType};
@@ -84,7 +84,7 @@ use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
 use crate::plugin::player::player_teleport::PlayerTeleportEvent;
 use crate::server::Server;
 use crate::world::World;
-use crate::{PERMISSION_MANAGER, PLUGIN_MANAGER, block};
+use crate::{PERMISSION_MANAGER, block};
 
 use super::combat::{self, AttackType, player_attack_sound};
 use super::effect::Effect;
