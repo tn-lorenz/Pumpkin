@@ -9,12 +9,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use crossbeam::atomic::AtomicCell;
 use log::warn;
-use pumpkin_world::chunk::{ChunkData, ChunkEntityData};
-use pumpkin_world::inventory::Inventory;
-use tokio::sync::{Mutex, RwLock};
-use tokio::task::JoinHandle;
-use uuid::Uuid;
-
+use pumpkin::plugin::player::player_death::PlayerDeathEvent;
 use pumpkin_config::{BASIC_CONFIG, advanced_config};
 use pumpkin_data::damage::DamageType;
 use pumpkin_data::entity::{EffectType, EntityPose, EntityStatus, EntityType};
@@ -65,12 +60,17 @@ use pumpkin_util::permission::PermissionLvl;
 use pumpkin_util::resource_location::ResourceLocation;
 use pumpkin_util::text::TextComponent;
 use pumpkin_world::biome;
+use pumpkin_world::chunk::{ChunkData, ChunkEntityData};
 use pumpkin_world::cylindrical_chunk_iterator::Cylindrical;
 use pumpkin_world::entity::entity_data_flags::{
     DATA_PLAYER_MAIN_HAND, DATA_PLAYER_MODE_CUSTOMISATION, SLEEPING_POS_ID,
 };
+use pumpkin_world::inventory::Inventory;
 use pumpkin_world::item::ItemStack;
 use pumpkin_world::level::{SyncChunk, SyncEntityChunk};
+use tokio::sync::{Mutex, RwLock};
+use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 use crate::block::blocks::bed::BedBlock;
 use crate::command::client_suggestions;
@@ -84,7 +84,7 @@ use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
 use crate::plugin::player::player_teleport::PlayerTeleportEvent;
 use crate::server::Server;
 use crate::world::World;
-use crate::{PERMISSION_MANAGER, block};
+use crate::{PERMISSION_MANAGER, PLUGIN_MANAGER, block};
 
 use super::combat::{self, AttackType, player_attack_sound};
 use super::effect::Effect;
@@ -1275,18 +1275,29 @@ impl Player {
         }
     }
 
-    pub async fn kill(&self) {
-        self.living_entity.kill().await;
-        self.handle_killed().await;
+    pub async fn kill(self: &Arc<Self>) {
+        send_cancellable! {{
+            PlayerDeathEvent {
+                player: self.clone(),
+                death_message: TextComponent::translate(
+                    "death.attack.generic",
+                    vec![TextComponent::text(self.gameprofile.name.clone())],
+                ),
+                damage_type: DamageType::GENERIC,
+                cancelled: false,
+            };
+
+            'after: {
+                self.living_entity.kill().await;
+                self.handle_killed(event.death_message).await;
+            }
+        }}
     }
 
-    async fn handle_killed(&self) {
+    async fn handle_killed(&self, death_message: TextComponent) {
         self.set_client_loaded(false);
         self.client
-            .send_packet_now(&CCombatDeath::new(
-                self.entity_id().into(),
-                &TextComponent::text("noob"),
-            ))
+            .send_packet_now(&CCombatDeath::new(self.entity_id().into(), &death_message))
             .await;
     }
 
@@ -2012,7 +2023,22 @@ impl EntityBase for Player {
         if result {
             let health = self.living_entity.health.load();
             if health <= 0.0 {
-                self.handle_killed().await;
+                send_cancellable! {{
+                    PlayerDeathEvent {
+                        player: self.clone(),
+                        death_message: TextComponent::translate(
+                            "death.attack.generic",
+                            vec![TextComponent::text(self.gameprofile.name.clone())],
+                        ),
+                        damage_type: DamageType::GENERIC,
+                        cancelled: false,
+                    };
+
+                    'after: {
+                        self.living_entity.kill().await;
+                        self.handle_killed(event.death_message).await;
+                    }
+                }}
             }
         }
         result
