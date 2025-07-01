@@ -84,7 +84,7 @@ use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
 use crate::plugin::player::player_teleport::PlayerTeleportEvent;
 use crate::server::Server;
 use crate::world::World;
-use crate::{PERMISSION_MANAGER, block};
+use crate::{PERMISSION_MANAGER, PLUGIN_MANAGER, block};
 
 use super::combat::{self, AttackType, player_attack_sound};
 use super::effect::Effect;
@@ -2023,7 +2023,7 @@ impl EntityBase for Player {
         if result {
             let health = self.living_entity.health.load();
             if health <= 0.0 {
-                send_cancellable! {{
+                /*send_cancellable! {{
                     PlayerDeathEvent {
                         player: self.clone(),
                         death_message: TextComponent::translate(
@@ -2038,7 +2038,26 @@ impl EntityBase for Player {
                         self.living_entity.kill().await;
                         self.handle_killed(event.death_message).await;
                     }
-                }}
+                }}*/
+                if let Some(player_arc) = self
+                    .world()
+                    .await
+                    .get_player_by_uuid(self.gameprofile.id)
+                    .await
+                {
+                    let mut event = PlayerDeathEvent::new(
+                        player_arc,
+                        TextComponent::translate(
+                            "death.attack.generic",
+                            vec![TextComponent::text(self.gameprofile.name.clone())],
+                        ),
+                        damage_type,
+                    );
+
+                    event = PLUGIN_MANAGER.read().await.fire(event).await;
+
+                    self.handle_killed(event.death_message).await;
+                }
             }
         }
         result
