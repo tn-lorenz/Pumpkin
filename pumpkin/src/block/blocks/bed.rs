@@ -40,6 +40,7 @@ impl BlockMetadata for BedBlock {
 
 #[async_trait]
 impl PumpkinBlock for BedBlock {
+    #[allow(clippy::too_many_lines)]
     async fn normal_use(
         &self,
         block: &Block,
@@ -119,7 +120,7 @@ impl PumpkinBlock for BedBlock {
                 let mut event = PlayerBedEnterEvent::new(
                     player.clone(),
                     block.clone(),
-                    BedEnterResult::OtherProblem,
+                    BedEnterResult::NotPossibleHere,
                 );
 
                 event = PLUGIN_MANAGER.read().await.fire(event).await;
@@ -348,11 +349,7 @@ impl PumpkinBlock for BedBlock {
         state: BlockState,
     ) {
         let bed_props = BedProperties::from_state_id(state.id, block);
-        let other_half_pos = if bed_props.part == BedPart::Head {
-            block_pos.offset(bed_props.facing.opposite().to_offset())
-        } else {
-            block_pos.offset(bed_props.facing.to_offset())
-        };
+        let other_half_pos = get_other_half_pos(bed_props, &block_pos);
 
         world
             .break_block(
@@ -386,11 +383,8 @@ impl BedBlock {
             )
             .await;
 
-        let other_half_pos = if bed_props.part == BedPart::Head {
-            block_pos.offset(bed_props.facing.opposite().to_offset())
-        } else {
-            block_pos.offset(bed_props.facing.to_offset())
-        };
+        let other_half_pos = get_other_half_pos(bed_props, block_pos);
+
         bed_props.part = if bed_props.part == BedPart::Head {
             BedPart::Foot
         } else {
@@ -416,6 +410,14 @@ async fn can_sleep(world: &Arc<World>) -> bool {
         time.time_of_day > 12010 && time.time_of_day < 23991
     } else {
         time.time_of_day > 12542 && time.time_of_day < 23459
+    }
+}
+
+fn get_other_half_pos(bed_props: BedProperties, block_pos: &BlockPos) -> BlockPos {
+    if bed_props.part == BedPart::Head {
+        block_pos.offset(bed_props.facing.opposite().to_offset())
+    } else {
+        block_pos.offset(bed_props.facing.to_offset())
     }
 }
 

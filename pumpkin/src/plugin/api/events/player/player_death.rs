@@ -28,9 +28,9 @@ impl PlayerDeathEvent {
     /// Creates a new instance of `PlayerDeathEvent`.
     ///
     /// # Arguments
-    /// - `player`: A reference to the player who died.
-    /// - `death_message`: The message to display when the player dies.
-    /// - `damage_type`: The source of the damage that killed the player, if any.
+    /// * `player`: A reference to the player who died.
+    /// * `death_message`: The message to display when the player dies.
+    /// * `damage_type`: The source of the damage that killed the player, if any.
     ///
     /// # Returns
     /// A new instance of `PlayerDeathEvent`.

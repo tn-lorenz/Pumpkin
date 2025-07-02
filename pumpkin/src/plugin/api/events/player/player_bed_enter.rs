@@ -30,6 +30,9 @@ impl PlayerBedEnterEvent {
     /// * `player` - The player entering the bed.
     /// * `bed` - The block representing the bed.
     /// * `bed_enter_result` - Describes whether the attempt was successful or not and why.
+    ///
+    /// # Returns
+    /// A new instance of `PlayerBedEnterEvent`.
     pub fn new(player: Arc<Player>, bed: Block, bed_enter_result: BedEnterResult) -> Self {
         Self {
             player,
@@ -39,13 +42,14 @@ impl PlayerBedEnterEvent {
         }
     }
 
-    /// Returns the bed block the player is leaving.
+    /// Returns the bed block the player is entering.
+    #[must_use]
     pub fn get_bed(&self) -> Block {
         self.bed.clone()
     }
 
-    /// Returns `true` if the player's spawn location should be set to the bed's position.
-    // TODO
+    /// Returns the `BedEnterResult` of the attempt of entering the bed.
+    #[must_use]
     pub fn get_bed_enter_result(&self) -> BedEnterResult {
         self.bed_enter_result.clone()
     }
@@ -65,6 +69,7 @@ impl PlayerEvent for PlayerBedEnterEvent {
     }
 }
 
+/// The possible results of a player trying to enter a bed.
 #[derive(Clone)]
 pub enum BedEnterResult {
     Ok,
