@@ -346,7 +346,7 @@ impl PumpkinBlock for BedBlock {
         block_pos: BlockPos,
         _server: &Server,
         world: Arc<World>,
-        state: BlockState,
+        state: &'static BlockState,
     ) {
         let bed_props = BedProperties::from_state_id(state.id, block);
         let other_half_pos = get_other_half_pos(bed_props, &block_pos);
