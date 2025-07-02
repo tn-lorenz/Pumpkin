@@ -2023,30 +2023,14 @@ impl EntityBase for Player {
         if result {
             let health = self.living_entity.health.load();
             if health <= 0.0 {
-                /*send_cancellable! {{
-                    PlayerDeathEvent {
-                        player: self.clone(),
-                        death_message: TextComponent::translate(
-                            "death.attack.generic",
-                            vec![TextComponent::text(self.gameprofile.name.clone())],
-                        ),
-                        damage_type: DamageType::GENERIC,
-                        cancelled: false,
-                    };
-
-                    'after: {
-                        self.living_entity.kill().await;
-                        self.handle_killed(event.death_message).await;
-                    }
-                }}*/
-                if let Some(player_arc) = self
+                if let Some(player) = self
                     .world()
                     .await
                     .get_player_by_uuid(self.gameprofile.id)
                     .await
                 {
                     let mut event = PlayerDeathEvent::new(
-                        player_arc,
+                        player,
                         TextComponent::translate(
                             "death.attack.generic",
                             vec![TextComponent::text(self.gameprofile.name.clone())],

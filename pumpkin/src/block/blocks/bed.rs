@@ -6,6 +6,7 @@ use pumpkin_data::entity::EntityType;
 use pumpkin_data::tag::{RegistryKey, get_tag_values};
 use pumpkin_data::{Block, BlockDirection};
 use pumpkin_data::{BlockState, block_properties::BedPart};
+use pumpkin_macros::send_cancellable;
 use pumpkin_protocol::java::server::play::SUseItemOn;
 use pumpkin_registry::VanillaDimensionType;
 use pumpkin_util::GameMode;
@@ -20,6 +21,7 @@ use crate::block::BlockIsReplacing;
 use crate::block::pumpkin_block::{BlockMetadata, PumpkinBlock};
 use crate::entity::player::Player;
 use crate::entity::{Entity, EntityBase};
+use crate::plugin::player::player_bed_enter::{BedEnterResult, PlayerBedEnterEvent};
 use crate::server::Server;
 use crate::world::World;
 
@@ -141,7 +143,7 @@ impl PumpkinBlock for BedBlock {
     async fn normal_use(
         &self,
         block: &Block,
-        player: &Player,
+        player: Arc<Player>,
         block_pos: BlockPos,
         server: &Server,
         world: &Arc<World>,
@@ -178,25 +180,43 @@ impl PumpkinBlock for BedBlock {
         if world.get_block_state(&bed_head_pos.up()).await.is_solid()
             || world.get_block_state(&bed_head_pos.up()).await.is_solid()
         {
-            player
-                .send_system_message_raw(
-                    &TextComponent::translate("block.minecraft.bed.obstructed", []),
-                    true,
-                )
-                .await;
+            send_cancellable! {{
+                PlayerBedEnterEvent {
+                    player: player.clone(),
+                    bed: block.clone(),
+                    bed_enter_result: BedEnterResult::Obstructed,
+                    cancelled: false,
+                };
+
+                'after: {
+                    player.send_system_message_raw(
+                        &TextComponent::translate("block.minecraft.bed.obstructed", []),
+                        true,
+                    ).await;
+                }
+            }}
             return;
         }
 
         // Make sure the bed is not occupied
         if bed_props.occupied {
             // TODO: Wake up villager
+            // TODO: Should there be a specific `BedEnterResult::Occupied`? Because Paper doesn't have that in the event itself
+            send_cancellable! {{
+                PlayerBedEnterEvent {
+                    player: player.clone(),
+                    bed: block.clone(),
+                    bed_enter_result: BedEnterResult::OtherProblem,
+                    cancelled: false,
+                };
 
-            player
-                .send_system_message_raw(
-                    &TextComponent::translate("block.minecraft.bed.occupied", []),
-                    true,
-                )
-                .await;
+                'after: {
+                    player.send_system_message_raw(
+                        &TextComponent::translate("block.minecraft.bed.occupied", []),
+                        true,
+                    ).await;
+                }
+            }}
             return;
         }
 
@@ -208,12 +228,21 @@ impl PumpkinBlock for BedBlock {
                 .position()
                 .is_within_bounds(bed_foot_pos.to_f64(), 3.0, 3.0, 3.0)
         {
-            player
-                .send_system_message_raw(
-                    &TextComponent::translate("block.minecraft.bed.too_far_away", []),
-                    true,
-                )
-                .await;
+            send_cancellable! {{
+                PlayerBedEnterEvent {
+                    player: player.clone(),
+                    bed: block.clone(),
+                    bed_enter_result: BedEnterResult::TooFarAway,
+                    cancelled: false,
+                };
+
+                'after: {
+                    player.send_system_message_raw(
+                        &TextComponent::translate("block.minecraft.bed.too_far_away", []),
+                        true,
+                    ).await;
+                }
+            }}
             return;
         }
 
@@ -233,12 +262,21 @@ impl PumpkinBlock for BedBlock {
 
         // Make sure the time and weather allows sleep
         if !can_sleep(world).await {
-            player
-                .send_system_message_raw(
-                    &TextComponent::translate("block.minecraft.bed.no_sleep", []),
-                    true,
-                )
-                .await;
+            send_cancellable! {{
+                PlayerBedEnterEvent {
+                    player: player.clone(),
+                    bed: block.clone(),
+                    bed_enter_result: BedEnterResult::NotPossibleNow,
+                    cancelled: false,
+                };
+
+                'after: {
+                    player.send_system_message_raw(
+                        &TextComponent::translate("block.minecraft.bed.no_sleep", []),
+                        true,
+                    ).await;
+                }
+            }}
             return;
         }
 
@@ -252,18 +290,38 @@ impl PumpkinBlock for BedBlock {
             if pos.is_within_bounds(bed_head_pos.to_f64(), 8.0, 5.0, 8.0)
                 || pos.is_within_bounds(bed_foot_pos.to_f64(), 8.0, 5.0, 8.0)
             {
-                player
-                    .send_system_message_raw(
-                        &TextComponent::translate("block.minecraft.bed.not_safe", []),
-                        true,
-                    )
-                    .await;
+                send_cancellable! {{
+                    PlayerBedEnterEvent {
+                        player: player.clone(),
+                        bed: block.clone(),
+                        bed_enter_result: BedEnterResult::NotSafe,
+                        cancelled: false,
+                    };
+
+                    'after: {
+                        player.send_system_message_raw(
+                            &TextComponent::translate("block.minecraft.bed.not_safe", []),
+                            true,
+                        ).await;
+                    }
+                }}
                 return;
             }
         }
 
-        player.sleep(bed_head_pos).await;
-        Self::set_occupied(true, world, block, &block_pos, state_id).await;
+        send_cancellable! {{
+            PlayerBedEnterEvent {
+                player: player.clone(),
+                bed: block.clone(),
+                bed_enter_result: BedEnterResult::Ok,
+                cancelled: false,
+            };
+
+            'after: {
+                player.sleep(bed_head_pos).await;
+                Self::set_occupied(true, world, block, &block_pos, state_id).await;
+            }
+        }}
     }
 }
 
