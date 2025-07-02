@@ -45,7 +45,7 @@ impl PlayerBedLeaveEvent {
 
     /// Returns the bed block the player is leaving.
     pub fn get_bed(&self) -> Block {
-        self.bed
+        self.bed.clone()
     }
 
     /// Returns `true` if the player's spawn location should be set to the bed's position.
