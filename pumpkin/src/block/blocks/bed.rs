@@ -17,11 +17,13 @@ use pumpkin_world::block::entities::bed::BedBlockEntity;
 use pumpkin_world::world::BlockAccessor;
 use pumpkin_world::world::BlockFlags;
 
+use crate::PLUGIN_MANAGER;
 use crate::block::BlockIsReplacing;
 use crate::block::pumpkin_block::{BlockMetadata, PumpkinBlock};
 use crate::entity::player::Player;
 use crate::entity::{Entity, EntityBase};
 use crate::plugin::player::player_bed_enter::{BedEnterResult, PlayerBedEnterEvent};
+use crate::plugin::player::player_death::PlayerDeathEvent;
 use crate::server::Server;
 use crate::world::World;
 
@@ -140,10 +142,11 @@ impl PumpkinBlock for BedBlock {
             .await;
     }
 
+    // TODO: Fix - I hate ts so much...why have a send_cancellable! macro when you pretty much never use an Arc
     async fn normal_use(
         &self,
         block: &Block,
-        player: Arc<Player>,
+        player: &Player,
         block_pos: BlockPos,
         server: &Server,
         world: &Arc<World>,
@@ -180,21 +183,29 @@ impl PumpkinBlock for BedBlock {
         if world.get_block_state(&bed_head_pos.up()).await.is_solid()
             || world.get_block_state(&bed_head_pos.up()).await.is_solid()
         {
-            send_cancellable! {{
-                PlayerBedEnterEvent {
-                    player: player.clone(),
-                    bed: block.clone(),
-                    bed_enter_result: BedEnterResult::Obstructed,
-                    cancelled: false,
-                };
+            if let Some(player) = player
+                .world()
+                .await
+                .get_player_by_uuid(player.gameprofile.id)
+                .await
+            {
+                let mut event = PlayerBedEnterEvent::new(
+                    player.clone(),
+                    block.clone(),
+                    BedEnterResult::Obstructed,
+                );
 
-                'after: {
-                    player.send_system_message_raw(
-                        &TextComponent::translate("block.minecraft.bed.obstructed", []),
-                        true,
-                    ).await;
+                event = PLUGIN_MANAGER.read().await.fire(event).await;
+
+                if !event.cancelled {
+                    player
+                        .send_system_message_raw(
+                            &TextComponent::translate("block.minecraft.bed.obstructed", []),
+                            true,
+                        )
+                        .await;
                 }
-            }}
+            }
             return;
         }
 
@@ -202,21 +213,29 @@ impl PumpkinBlock for BedBlock {
         if bed_props.occupied {
             // TODO: Wake up villager
             // TODO: Should there be a specific `BedEnterResult::Occupied`? Because Paper doesn't have that in the event itself
-            send_cancellable! {{
-                PlayerBedEnterEvent {
-                    player: player.clone(),
-                    bed: block.clone(),
-                    bed_enter_result: BedEnterResult::OtherProblem,
-                    cancelled: false,
-                };
+            if let Some(player) = player
+                .world()
+                .await
+                .get_player_by_uuid(player.gameprofile.id)
+                .await
+            {
+                let mut event = PlayerBedEnterEvent::new(
+                    player.clone(),
+                    block.clone(),
+                    BedEnterResult::OtherProblem,
+                );
 
-                'after: {
-                    player.send_system_message_raw(
-                        &TextComponent::translate("block.minecraft.bed.occupied", []),
-                        true,
-                    ).await;
+                event = PLUGIN_MANAGER.read().await.fire(event).await;
+
+                if !event.cancelled {
+                    player
+                        .send_system_message_raw(
+                            &TextComponent::translate("block.minecraft.bed.occupied", []),
+                            true,
+                        )
+                        .await;
                 }
-            }}
+            }
             return;
         }
 
@@ -228,21 +247,29 @@ impl PumpkinBlock for BedBlock {
                 .position()
                 .is_within_bounds(bed_foot_pos.to_f64(), 3.0, 3.0, 3.0)
         {
-            send_cancellable! {{
-                PlayerBedEnterEvent {
-                    player: player.clone(),
-                    bed: block.clone(),
-                    bed_enter_result: BedEnterResult::TooFarAway,
-                    cancelled: false,
-                };
+            if let Some(player) = player
+                .world()
+                .await
+                .get_player_by_uuid(player.gameprofile.id)
+                .await
+            {
+                let mut event = PlayerBedEnterEvent::new(
+                    player.clone(),
+                    block.clone(),
+                    BedEnterResult::TooFarAway,
+                );
 
-                'after: {
-                    player.send_system_message_raw(
-                        &TextComponent::translate("block.minecraft.bed.too_far_away", []),
-                        true,
-                    ).await;
+                event = PLUGIN_MANAGER.read().await.fire(event).await;
+
+                if !event.cancelled {
+                    player
+                        .send_system_message_raw(
+                            &TextComponent::translate("block.minecraft.bed.too_far_away", []),
+                            true,
+                        )
+                        .await;
                 }
-            }}
+            }
             return;
         }
 
@@ -262,21 +289,29 @@ impl PumpkinBlock for BedBlock {
 
         // Make sure the time and weather allows sleep
         if !can_sleep(world).await {
-            send_cancellable! {{
-                PlayerBedEnterEvent {
-                    player: player.clone(),
-                    bed: block.clone(),
-                    bed_enter_result: BedEnterResult::NotPossibleNow,
-                    cancelled: false,
-                };
+            if let Some(player) = player
+                .world()
+                .await
+                .get_player_by_uuid(player.gameprofile.id)
+                .await
+            {
+                let mut event = PlayerBedEnterEvent::new(
+                    player.clone(),
+                    block.clone(),
+                    BedEnterResult::NotPossibleNow,
+                );
 
-                'after: {
-                    player.send_system_message_raw(
-                        &TextComponent::translate("block.minecraft.bed.no_sleep", []),
-                        true,
-                    ).await;
+                event = PLUGIN_MANAGER.read().await.fire(event).await;
+
+                if !event.cancelled {
+                    player
+                        .send_system_message_raw(
+                            &TextComponent::translate("block.minecraft.bed.no_sleep", []),
+                            true,
+                        )
+                        .await;
                 }
-            }}
+            }
             return;
         }
 
@@ -290,38 +325,49 @@ impl PumpkinBlock for BedBlock {
             if pos.is_within_bounds(bed_head_pos.to_f64(), 8.0, 5.0, 8.0)
                 || pos.is_within_bounds(bed_foot_pos.to_f64(), 8.0, 5.0, 8.0)
             {
-                send_cancellable! {{
-                    PlayerBedEnterEvent {
-                        player: player.clone(),
-                        bed: block.clone(),
-                        bed_enter_result: BedEnterResult::NotSafe,
-                        cancelled: false,
-                    };
+                if let Some(player) = player
+                    .world()
+                    .await
+                    .get_player_by_uuid(player.gameprofile.id)
+                    .await
+                {
+                    let mut event = PlayerBedEnterEvent::new(
+                        player.clone(),
+                        block.clone(),
+                        BedEnterResult::NotSafe,
+                    );
 
-                    'after: {
-                        player.send_system_message_raw(
-                            &TextComponent::translate("block.minecraft.bed.not_safe", []),
-                            true,
-                        ).await;
+                    event = PLUGIN_MANAGER.read().await.fire(event).await;
+
+                    if !event.cancelled {
+                        player
+                            .send_system_message_raw(
+                                &TextComponent::translate("block.minecraft.bed.not_safe", []),
+                                true,
+                            )
+                            .await;
                     }
-                }}
+                }
                 return;
             }
         }
 
-        send_cancellable! {{
-            PlayerBedEnterEvent {
-                player: player.clone(),
-                bed: block.clone(),
-                bed_enter_result: BedEnterResult::Ok,
-                cancelled: false,
-            };
+        if let Some(player) = player
+            .world()
+            .await
+            .get_player_by_uuid(player.gameprofile.id)
+            .await
+        {
+            let mut event =
+                PlayerBedEnterEvent::new(player.clone(), block.clone(), BedEnterResult::Ok);
 
-            'after: {
+            event = PLUGIN_MANAGER.read().await.fire(event).await;
+
+            if !event.cancelled {
                 player.sleep(bed_head_pos).await;
                 Self::set_occupied(true, world, block, &block_pos, state_id).await;
             }
-        }}
+        }
     }
 }
 
