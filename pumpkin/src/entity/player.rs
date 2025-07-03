@@ -86,6 +86,7 @@ use crate::entity::experience_orb::ExperienceOrbEntity;
 use crate::error::PumpkinError;
 use crate::net::GameProfile;
 use crate::net::{Client, PlayerConfig};
+use crate::plugin::block::sign_change::{Side, SignChangeEvent};
 use crate::plugin::player::player_bed_leave::PlayerBedLeaveEvent;
 use crate::plugin::player::player_change_world::PlayerChangeWorldEvent;
 use crate::plugin::player::player_death::PlayerDeathEvent;
@@ -2250,7 +2251,33 @@ impl Player {
                 self.handle_swing_arm(SSwingArm::read(payload)?).await;
             }
             SUpdateSign::PACKET_ID => {
-                self.handle_sign_update(SUpdateSign::read(payload)?).await;
+                let packet = SUpdateSign::read(payload)?;
+
+                let side = if packet.is_front_text {
+                    Side::Front
+                } else {
+                    Side::Back
+                };
+
+                let content = vec![
+                    packet.line_1.clone(),
+                    packet.line_2.clone(),
+                    packet.line_3.clone(),
+                    packet.line_4.clone(),
+                ];
+
+                send_cancellable! {{
+                    SignChangeEvent {
+                        player: self.clone(),
+                        content,
+                        side,
+                        cancelled: false,
+                    };
+
+                    'after: {
+                        self.handle_sign_update(packet).await;
+                    }
+                }}
             }
             SUseItemOn::PACKET_ID => {
                 self.handle_use_item_on(SUseItemOn::read(payload)?, server)

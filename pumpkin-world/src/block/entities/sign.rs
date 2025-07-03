@@ -88,7 +88,7 @@ pub struct SignBlockEntity {
 }
 
 #[derive(Clone, Default)]
-struct Text {
+pub struct Text {
     has_glowing_text: bool,
     color: DyeColor,
     messages: [String; 4],
