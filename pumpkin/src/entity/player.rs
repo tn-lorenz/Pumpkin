@@ -674,7 +674,7 @@ impl Player {
                 self.sleeping_since.store(None);
 
                 if event.set_bed_spawn {
-                    self.respawn_point.store(Some(respawn_point.clone()));
+                    self.respawn_point.store(Some(respawn_point));
                 }
             }
         }

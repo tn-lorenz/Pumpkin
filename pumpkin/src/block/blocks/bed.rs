@@ -274,7 +274,7 @@ impl PumpkinBlock for BedBlock {
 
             if !event.cancelled {
                 player.sleep(bed_head_pos).await;
-                Self::set_occupied(true, args.world, args.block, &args.location, state_id).await;
+                Self::set_occupied(true, args.world, args.block, args.location, state_id).await;
             }
         }
     }
@@ -328,12 +328,7 @@ impl PumpkinBlock for BedBlock {
 
     async fn broken(&self, args: BrokenArgs<'_>) {
         let bed_props = BedProperties::from_state_id(args.state.id, args.block);
-        let other_half_pos = if bed_props.part == BedPart::Head {
-            args.location
-                .offset(bed_props.facing.opposite().to_offset())
-        } else {
-            args.location.offset(bed_props.facing.to_offset())
-        };
+        let other_half_pos = get_other_half_pos(bed_props, args.location);
 
         args.world
             .break_block(
