@@ -71,6 +71,12 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
+use super::combat::{self, AttackType, player_attack_sound};
+use super::effect::Effect;
+use super::hunger::HungerManager;
+use super::item::ItemEntity;
+use super::living::LivingEntity;
+use super::{Entity, EntityBase, EntityId, NBTStorage};
 use crate::block::blocks::bed::BedBlock;
 use crate::command::client_suggestions;
 use crate::command::dispatcher::CommandDispatcher;
@@ -78,6 +84,7 @@ use crate::data::op_data::OPERATOR_CONFIG;
 use crate::error::PumpkinError;
 use crate::net::GameProfile;
 use crate::net::{Client, PlayerConfig};
+use crate::plugin::player::player_bed_leave::PlayerBedLeaveEvent;
 use crate::plugin::player::player_change_world::PlayerChangeWorldEvent;
 use crate::plugin::player::player_death::PlayerDeathEvent;
 use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
@@ -85,13 +92,6 @@ use crate::plugin::player::player_teleport::PlayerTeleportEvent;
 use crate::server::Server;
 use crate::world::World;
 use crate::{PERMISSION_MANAGER, PLUGIN_MANAGER, block};
-
-use super::combat::{self, AttackType, player_attack_sound};
-use super::effect::Effect;
-use super::hunger::HungerManager;
-use super::item::ItemEntity;
-use super::living::LivingEntity;
-use super::{Entity, EntityBase, EntityId, NBTStorage};
 
 const MAX_CACHED_SIGNATURES: u8 = 128; // Vanilla: 128
 const MAX_PREVIOUS_MESSAGES: u8 = 20; // Vanilla: 20
@@ -625,30 +625,57 @@ impl Player {
         let (bed, bed_state) = world
             .get_block_and_block_state(&respawn_point.position)
             .await;
-        BedBlock::set_occupied(false, &world, bed, &respawn_point.position, bed_state.id).await;
 
-        self.living_entity
-            .entity
-            .set_pose(EntityPose::Standing)
-            .await;
-        self.living_entity.entity.set_pos(self.position());
-        self.living_entity
-            .entity
-            .send_meta_data(&[Metadata::new(
-                SLEEPING_POS_ID,
-                MetaDataType::OptionalBlockPos,
-                None::<BlockPos>,
-            )])
-            .await;
+        if let Some(player) = self
+            .world()
+            .await
+            .get_player_by_uuid(self.gameprofile.id)
+            .await
+        {
+            let mut event = PlayerBedLeaveEvent::new(player.clone(), bed.clone(), true);
 
-        world
-            .broadcast_packet_all(&CEntityAnimation::new(
-                self.entity_id().into(),
-                Animation::LeaveBed,
-            ))
-            .await;
+            event = PLUGIN_MANAGER.read().await.fire(event).await;
 
-        self.sleeping_since.store(None);
+            if !event.cancelled {
+                BedBlock::set_occupied(
+                    false,
+                    &world,
+                    &event.bed,
+                    &respawn_point.position,
+                    bed_state.id,
+                )
+                .await;
+
+                self.living_entity
+                    .entity
+                    .set_pose(EntityPose::Standing)
+                    .await;
+
+                self.living_entity.entity.set_pos(self.position());
+
+                self.living_entity
+                    .entity
+                    .send_meta_data(&[Metadata::new(
+                        SLEEPING_POS_ID,
+                        MetaDataType::OptionalBlockPos,
+                        None::<BlockPos>,
+                    )])
+                    .await;
+
+                world
+                    .broadcast_packet_all(&CEntityAnimation::new(
+                        self.entity_id().into(),
+                        Animation::LeaveBed,
+                    ))
+                    .await;
+
+                self.sleeping_since.store(None);
+
+                if event.set_bed_spawn {
+                    self.respawn_point.store(Some(respawn_point.clone()));
+                }
+            }
+        }
     }
 
     pub async fn show_title(&self, text: &TextComponent, mode: &TitleMode) {
