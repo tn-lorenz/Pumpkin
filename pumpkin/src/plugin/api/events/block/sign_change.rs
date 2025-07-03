@@ -39,6 +39,7 @@ impl SignChangeEvent {
     }
 
     /// Returns a cloned vector of the sign's new text lines.
+    #[must_use]
     pub fn lines(&self) -> Vec<String> {
         self.content.clone()
     }
@@ -47,6 +48,7 @@ impl SignChangeEvent {
     ///
     /// # Panics
     /// Panics if the index is out of bounds.
+    #[must_use]
     pub fn line(&self, index: usize) -> String {
         self.content.get(index).unwrap().clone()
     }
@@ -56,13 +58,15 @@ impl SignChangeEvent {
     /// # Parameters
     /// * `index`: The line index to set.
     /// * `line`: The new string content for the line.
+    // TODO: clamp this?
     pub fn set_line(&mut self, index: usize, line: String) {
         self.content.insert(index, line);
     }
 
     /// Returns the side of the sign being edited.
+    #[must_use]
     pub fn get_side(&self) -> Side {
-        self.side
+        self.side.clone()
     }
 }
 
@@ -74,6 +78,7 @@ impl PlayerEvent for SignChangeEvent {
 }
 
 /// Enum representing which side of a sign is being interacted with.
+#[derive(Clone)]
 pub enum Side {
     /// The front side of the sign.
     Front,
