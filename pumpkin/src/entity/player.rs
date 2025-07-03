@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use crossbeam::atomic::AtomicCell;
 use log::warn;
+
+use pumpkin_world::inventory::{Clearable, Inventory};
 use pumpkin_config::{BASIC_CONFIG, advanced_config};
 use pumpkin_data::damage::DamageType;
 use pumpkin_data::entity::{EffectType, EntityPose, EntityStatus, EntityType};
@@ -64,7 +66,6 @@ use pumpkin_world::cylindrical_chunk_iterator::Cylindrical;
 use pumpkin_world::entity::entity_data_flags::{
     DATA_PLAYER_MAIN_HAND, DATA_PLAYER_MODE_CUSTOMISATION, SLEEPING_POS_ID,
 };
-use pumpkin_world::inventory::Inventory;
 use pumpkin_world::item::ItemStack;
 use pumpkin_world::level::{SyncChunk, SyncEntityChunk};
 use tokio::sync::{Mutex, RwLock};
@@ -81,6 +82,7 @@ use crate::block::blocks::bed::BedBlock;
 use crate::command::client_suggestions;
 use crate::command::dispatcher::CommandDispatcher;
 use crate::data::op_data::OPERATOR_CONFIG;
+use crate::entity::experience_orb::ExperienceOrbEntity;
 use crate::error::PumpkinError;
 use crate::net::GameProfile;
 use crate::net::{Client, PlayerConfig};
@@ -1316,6 +1318,33 @@ impl Player {
 
             'after: {
                 self.living_entity.kill().await;
+              let world = self.world().await;
+        if !world.level_info.read().await.game_rules.keep_inventory {
+            let pos = self.living_entity.entity.block_pos.load();
+            for item in &self.inventory.main_inventory {
+                world.drop_stack(&pos, *item.lock().await).await;
+            }
+            for item in self
+                .inventory
+                .entity_equipment
+                .lock()
+                .await
+                .equipment
+                .values()
+            {
+                world.drop_stack(&pos, *item.lock().await).await;
+            }
+            self.inventory.clear().await;
+
+            if self.gamemode.load() != GameMode::Spectator {
+                ExperienceOrbEntity::spawn(
+                    &world,
+                    pos.to_f64(),
+                    (self.experience_level.load(Ordering::Relaxed) * 7).min(100) as u32,
+                )
+                .await;
+            }
+        }
                 self.handle_killed(event.death_message).await;
             }
         }}
