@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use crossbeam::atomic::AtomicCell;
 use log::warn;
 
-use pumpkin_world::inventory::{Clearable, Inventory};
 use pumpkin_config::{BASIC_CONFIG, advanced_config};
 use pumpkin_data::damage::DamageType;
 use pumpkin_data::entity::{EffectType, EntityPose, EntityStatus, EntityType};
@@ -66,6 +65,7 @@ use pumpkin_world::cylindrical_chunk_iterator::Cylindrical;
 use pumpkin_world::entity::entity_data_flags::{
     DATA_PLAYER_MAIN_HAND, DATA_PLAYER_MODE_CUSTOMISATION, SLEEPING_POS_ID,
 };
+use pumpkin_world::inventory::{Clearable, Inventory};
 use pumpkin_world::item::ItemStack;
 use pumpkin_world::level::{SyncChunk, SyncEntityChunk};
 use tokio::sync::{Mutex, RwLock};
