@@ -1318,33 +1318,33 @@ impl Player {
 
             'after: {
                 self.living_entity.kill().await;
-              let world = self.world().await;
-        if !world.level_info.read().await.game_rules.keep_inventory {
-            let pos = self.living_entity.entity.block_pos.load();
-            for item in &self.inventory.main_inventory {
-                world.drop_stack(&pos, *item.lock().await).await;
-            }
-            for item in self
-                .inventory
-                .entity_equipment
-                .lock()
-                .await
-                .equipment
-                .values()
-            {
-                world.drop_stack(&pos, *item.lock().await).await;
-            }
-            self.inventory.clear().await;
+                let world = self.world().await;
+                if !world.level_info.read().await.game_rules.keep_inventory {
+                    let pos = self.living_entity.entity.block_pos.load();
+                    for item in &self.inventory.main_inventory {
+                        world.drop_stack(&pos, *item.lock().await).await;
+                    }
+                    for item in self
+                        .inventory
+                        .entity_equipment
+                        .lock()
+                        .await
+                        .equipment
+                        .values()
+                    {
+                        world.drop_stack(&pos, *item.lock().await).await;
+                    }
+                    self.inventory.clear().await;
 
-            if self.gamemode.load() != GameMode::Spectator {
-                ExperienceOrbEntity::spawn(
-                    &world,
-                    pos.to_f64(),
-                    (self.experience_level.load(Ordering::Relaxed) * 7).min(100) as u32,
-                )
-                .await;
-            }
-        }
+                    if self.gamemode.load() != GameMode::Spectator {
+                        ExperienceOrbEntity::spawn(
+                            &world,
+                            pos.to_f64(),
+                            (self.experience_level.load(Ordering::Relaxed) * 7).min(100) as u32,
+                        )
+                        .await;
+                    }
+                }
                 self.handle_killed(event.death_message).await;
             }
         }}
