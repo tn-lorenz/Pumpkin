@@ -5,6 +5,7 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use uuid::Uuid;
+use pumpkin_config::advanced_config;
 use pumpkin_data::{
     particle::Particle,
     sound::{Sound, SoundCategory},
@@ -131,7 +132,43 @@ pub async fn player_attack_sound(pos: &Vector3<f64>, world: &World, attack_type:
     }
 }
 
+/// This will only be used by plugins who override per-player `CombatProfile`s
 pub static COMBAT_PROFILES: Lazy<DashMap<Uuid, Arc<dyn CombatProfile>>> = Lazy::new(|| DashMap::new());
+
+/// This is a global in-memory cache that is initialised once on pumpkin start. It holds the current knockback configuration.
+pub static GLOBAL_COMBAT_PROFILE: Lazy<Arc<dyn CombatProfile + Send + Sync>> = Lazy::new(|| {
+    let config = &advanced_config().pvp;
+
+    match config.combat_type.to_lowercase().as_str() {
+        "classic" => Arc::new(ClassicProfile {
+            friction: config.friction,
+            horizontal_kb: config.horizontal_kb,
+            vertical_kb: config.vertical_kb,
+            vertical_limit: config.vertical_limit,
+            extra_horizontal_kb: config.extra_horizontal_kb,
+            extra_vertical_kb: config.extra_vertical_kb,
+        }),
+        "modern" => Arc::new(ModernProfile {
+            friction: config.friction,
+            horizontal_kb: config.horizontal_kb,
+            vertical_kb: config.vertical_kb,
+            vertical_limit: config.vertical_limit,
+            extra_horizontal_kb: config.extra_horizontal_kb,
+            extra_vertical_kb: config.extra_vertical_kb,
+        }),
+        unknown => {
+            log::warn!("Combat Profile '{}' does not exist! Loaded Modern Combat Profile instead.", unknown);
+            Arc::new(ModernProfile {
+                friction: config.friction,
+                horizontal_kb: config.horizontal_kb,
+                vertical_kb: config.vertical_kb,
+                vertical_limit: config.vertical_limit,
+                extra_horizontal_kb: config.extra_horizontal_kb,
+                extra_vertical_kb: config.extra_vertical_kb,
+            })
+        }
+    }
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CombatType {
@@ -142,8 +179,8 @@ pub enum CombatType {
 
 #[async_trait]
 pub trait CombatProfile {
-    async fn apply_attack_knockback(&self, target: Arc<Entity>, strength: f64);
-    async fn receive_knockback(&self, entity: Arc<Entity>, double_1: i32, double_2: i32);
+    async fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64);
+    async fn receive_knockback(&self, entity: Arc<Entity>, knockback_x: f64, knockback_z: f64);
     async fn combat_type(&self) -> CombatType;
     async fn friction(&self) -> f64;
     async fn horizontal_kb(&self) -> f64;
@@ -165,7 +202,7 @@ pub struct ClassicProfile {
 impl CombatProfile for ClassicProfile {
     // TODO: send update packet, but maybe do that when this fn is called
     /// Getting called from an attacker, when attacking an entity
-    async fn apply_attack_knockback(&self, target: Arc<Entity>, strength: f64) {
+    async fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64) {
         let yaw: f64 = target.yaw.load() as f64;
         let yaw_rad = yaw.to_radians();
 
@@ -180,13 +217,14 @@ impl CombatProfile for ClassicProfile {
         velocity.y += knockback_y;
         velocity.z += knockback_z;
 
-        velocity.x *= 0.6;
-        velocity.z *= 0.6;
+        let mut attacker_velocity = attacker.living_entity.entity.velocity.load();
+        attacker_velocity.x *= 0.6;
+        attacker_velocity.z *= 0.6;
 
+        // TODO: ADD not STORE the velocity
         target.velocity.store(velocity);
 
-        // TODO: DON'T reset sprinting of the target, but the attacker
-        target.sprinting.store(false, Ordering::Relaxed);
+        attacker.living_entity.entity.sprinting.store(false, Ordering::Relaxed);
     }
 
     /// Getting called on a target, when being attacked
@@ -258,11 +296,11 @@ pub struct ModernProfile {
 }
 
 impl CombatProfile for ModernProfile {
-    async fn apply_attack_knockback(&self, target: Arc<Player>, strength: f64) {
+    async fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64) {
         todo!()
     }
 
-    async fn receive_knockback(&self, entity: Arc<Entity>, double_1: i32, double_2: i32) {
+    async fn receive_knockback(&self, entity: Arc<Entity>, knockback_x: i32, knockback_z: i32) {
         todo!()
     }
 
