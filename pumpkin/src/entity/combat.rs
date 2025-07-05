@@ -57,23 +57,14 @@ impl AttackType {
 }
 
 pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity, strength: f64) {
-    let yaw = attacker.yaw.load();
+    let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
 
-    let saved_velo = victim.velocity.load();
-    victim.knockback(
-        strength * 0.5,
-        f64::from((yaw.to_radians()).sin()),
-        f64::from(-(yaw.to_radians()).cos()),
-    );
+    combat_profile.apply_attack_knockback(attacker, victim, strength);
 
     let entity_id = VarInt(victim.entity_id);
-    let victim_velocity = victim.velocity.load();
+    let target_velocity = victim.velocity.load();
+    let packet = CEntityVelocity::new(entity_id, target_velocity);
 
-    let packet = CEntityVelocity::new(entity_id, victim_velocity);
-    let velocity = attacker.velocity.load();
-    attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
-
-    victim.velocity.store(saved_velo);
     world.broadcast_packet_all(&packet).await;
 }
 
@@ -134,7 +125,7 @@ pub async fn player_attack_sound(pos: &Vector3<f64>, world: &World, attack_type:
 pub static COMBAT_PROFILES: LazyLock<DashMap<Uuid, Arc<dyn CombatProfile + Send + Sync>>> =
     LazyLock::new(DashMap::new);
 
-/// This is a global in-memory cache that is initialised once on pumpkin start. It holds the current knockback configuration.
+/// This is a global in-memory cache that holds the current knockback configuration.
 pub static GLOBAL_COMBAT_PROFILE: LazyLock<Arc<dyn CombatProfile + Send + Sync>> = LazyLock::new(
     || {
         let config = &advanced_config().pvp;
@@ -182,7 +173,7 @@ pub enum CombatType {
 
 #[allow(dead_code)]
 pub trait CombatProfile: Send + Sync {
-    fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64);
+    fn apply_attack_knockback(&self, attacker: &Entity, target: &Entity, strength: f64);
     fn receive_knockback(&self, strength: f64, entity: &Entity, knockback_x: f64, knockback_z: f64);
     fn combat_type(&self) -> CombatType;
     fn friction(&self) -> f64;
@@ -205,7 +196,7 @@ pub struct ClassicProfile {
 impl CombatProfile for ClassicProfile {
     // TODO: send update packet, but maybe do that when this fn is called
     /// Getting called from an attacker, when attacking an entity
-    fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64) {
+    fn apply_attack_knockback(&self, attacker: &Entity, target: &Entity, strength: f64) {
         // TODO: Velocity changed flag? + critical hit flag?
         let yaw: f64 = f64::from(target.yaw.load());
         let yaw_rad = yaw.to_radians();
@@ -221,23 +212,25 @@ impl CombatProfile for ClassicProfile {
         velocity.y += knockback_y;
         velocity.z += knockback_z;
 
-        let mut attacker_velocity = attacker.living_entity.entity.velocity.load();
+        let mut attacker_velocity = attacker.velocity.load();
         attacker_velocity.x *= 0.6;
         attacker_velocity.z *= 0.6;
 
         // TODO: ADD not STORE the velocity ? Lune I'm confused
         target.velocity.store(velocity);
 
-        attacker
-            .living_entity
-            .entity
-            .sprinting
-            .store(false, Relaxed);
+        attacker.sprinting.store(false, Relaxed);
     }
 
     /// Getting called on a target, when being attacked
     // the `float p_70653_2_` from java is dead code, so I removed it
-    fn receive_knockback(&self, _strength: f64, entity: &Entity, knockback_x: f64, knockback_z: f64) {
+    fn receive_knockback(
+        &self,
+        _strength: f64,
+        entity: &Entity,
+        knockback_x: f64,
+        knockback_z: f64,
+    ) {
         let mut rng = rand::rng();
         // TODO: Use the actual knockback_resistance when this field get's added (issue already created)
         let knockback_resistance = 0.5;
@@ -307,8 +300,8 @@ pub struct ModernProfile {
 
 // These are taken from the existing implementation
 impl CombatProfile for ModernProfile {
-    fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64) {
-        let yaw = attacker.living_entity.entity.yaw.load();
+    fn apply_attack_knockback(&self, attacker: &Entity, target: &Entity, strength: f64) {
+        let yaw = attacker.yaw.load();
 
         let saved_velo = target.velocity.load();
         target.knockback(
@@ -317,22 +310,20 @@ impl CombatProfile for ModernProfile {
             f64::from(-yaw.to_radians().cos()),
         );
 
-        let entity_id = VarInt(target.entity_id);
-        let target_velocity = target.velocity.load();
+        let velocity = attacker.velocity.load();
 
-        let _packet = CEntityVelocity::new(entity_id, target_velocity);
-        let velocity = attacker.living_entity.entity.velocity.load();
-        attacker
-            .living_entity
-            .entity
-            .velocity
-            .store(velocity.multiply(0.6, 1.0, 0.6));
+        attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
 
         target.velocity.store(saved_velo);
-        //world.broadcast_packet_all(&packet).await;
     }
 
-    fn receive_knockback(&self, strength: f64, entity: &Entity, knockback_x: f64, knockback_z: f64) {
+    fn receive_knockback(
+        &self,
+        strength: f64,
+        entity: &Entity,
+        knockback_x: f64,
+        knockback_z: f64,
+    ) {
         // This has some vanilla magic
         let mut x = knockback_x;
         let mut z = knockback_z;
