@@ -203,6 +203,7 @@ impl CombatProfile for ClassicProfile {
     // TODO: send update packet, but maybe do that when this fn is called
     /// Getting called from an attacker, when attacking an entity
     async fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64) {
+        // TODO: Velocity changed flag? + critical hit flag?
         let yaw: f64 = target.yaw.load() as f64;
         let yaw_rad = yaw.to_radians();
 
@@ -221,7 +222,7 @@ impl CombatProfile for ClassicProfile {
         attacker_velocity.x *= 0.6;
         attacker_velocity.z *= 0.6;
 
-        // TODO: ADD not STORE the velocity
+        // TODO: ADD not STORE the velocity ? Lune I'm confused
         target.velocity.store(velocity);
 
         attacker.living_entity.entity.sprinting.store(false, Ordering::Relaxed);
