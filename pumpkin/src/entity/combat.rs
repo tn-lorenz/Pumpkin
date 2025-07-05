@@ -130,7 +130,7 @@ pub async fn player_attack_sound(pos: &Vector3<f64>, world: &World, attack_type:
     }
 }
 
-/// This will only be used by plugins who override per-player `CombatProfile`s
+/// This map represents per-player `CombatProfile`s, in-case plugins need to overwrite the settings inside `features.toml` for some players, but not all.
 pub static COMBAT_PROFILES: LazyLock<DashMap<Uuid, Arc<dyn CombatProfile + Send + Sync>>> =
     LazyLock::new(DashMap::new);
 
@@ -183,7 +183,7 @@ pub enum CombatType {
 #[allow(dead_code)]
 pub trait CombatProfile: Send + Sync {
     fn apply_attack_knockback(&self, attacker: Arc<Player>, target: Arc<Entity>, strength: f64);
-    fn receive_knockback(&self, entity: Arc<Entity>, knockback_x: f64, knockback_z: f64);
+    fn receive_knockback(&self, strength: f64, entity: &Entity, knockback_x: f64, knockback_z: f64);
     fn combat_type(&self) -> CombatType;
     fn friction(&self) -> f64;
     fn horizontal_kb(&self) -> f64;
@@ -237,17 +237,17 @@ impl CombatProfile for ClassicProfile {
 
     /// Getting called on a target, when being attacked
     // the `float p_70653_2_` from java is dead code, so I removed it
-    fn receive_knockback(&self, target: Arc<Entity>, knockback_x: f64, knockback_z: f64) {
+    fn receive_knockback(&self, _strength: f64, entity: &Entity, knockback_x: f64, knockback_z: f64) {
         let mut rng = rand::rng();
         // TODO: Use the actual knockback_resistance when this field get's added (issue already created)
         let knockback_resistance = 0.5;
 
         if rng.random::<f64>() >= knockback_resistance {
             // TODO: Use this
-            let _ = !target.on_ground.load(Relaxed);
+            let _ = !entity.on_ground.load(Relaxed);
 
             let magnitude = (square(knockback_x) + square(knockback_z)).sqrt();
-            let mut velocity = target.velocity.load();
+            let mut velocity = entity.velocity.load();
 
             // `friction` is 2.0 by default in java mc 1.8
             velocity.x /= self.friction;
@@ -332,12 +332,11 @@ impl CombatProfile for ModernProfile {
         //world.broadcast_packet_all(&packet).await;
     }
 
-    fn receive_knockback(&self, entity: Arc<Entity>, knockback_x: f64, knockback_z: f64) {
+    fn receive_knockback(&self, strength: f64, entity: &Entity, knockback_x: f64, knockback_z: f64) {
         // This has some vanilla magic
         let mut x = knockback_x;
         let mut z = knockback_z;
-        // TODO: actually get the value from somewhere, this is a dummy-parameter for now
-        let strength = 0.5;
+
         while x.mul_add(x, z * z) < 1.0E-5 {
             x = (rand::random::<f64>() - rand::random::<f64>()) * 0.01;
             z = (rand::random::<f64>() - rand::random::<f64>()) * 0.01;

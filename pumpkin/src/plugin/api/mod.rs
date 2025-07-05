@@ -1,5 +1,6 @@
 pub mod context;
 pub mod events;
+pub mod combat;
 
 use async_trait::async_trait;
 pub use context::*;

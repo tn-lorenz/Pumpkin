@@ -39,7 +39,7 @@ use std::sync::{
     },
 };
 use tokio::sync::{Mutex, RwLock};
-
+use crate::entity::combat::{CombatType, GLOBAL_COMBAT_PROFILE};
 use crate::world::World;
 
 pub mod ai;
@@ -455,25 +455,9 @@ impl Entity {
     ///
     /// This function calculates the entity's new velocity based on the specified knockback strength and direction.
     pub fn knockback(&self, strength: f64, x: f64, z: f64) {
-        // This has some vanilla magic
-        let mut x = x;
-        let mut z = z;
-        while x.mul_add(x, z * z) < 1.0E-5 {
-            x = (rand::random::<f64>() - rand::random::<f64>()) * 0.01;
-            z = (rand::random::<f64>() - rand::random::<f64>()) * 0.01;
-        }
+        let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
 
-        let var8 = Vector3::new(x, 0.0, z).normalize() * strength;
-        let velocity = self.velocity.load();
-        self.velocity.store(Vector3::new(
-            velocity.x / 2.0 - var8.x,
-            if self.on_ground.load(Relaxed) {
-                (velocity.y / 2.0 + strength).min(0.4)
-            } else {
-                velocity.y
-            },
-            velocity.z / 2.0 - var8.z,
-        ));
+        combat_profile.receive_knockback(strength, self, x, z);
     }
 
     pub async fn set_sneaking(&self, sneaking: bool) {
