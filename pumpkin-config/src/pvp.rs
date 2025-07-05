@@ -38,6 +38,12 @@ impl Default for PVPConfig {
             knockback: true,
             swing: true,
             combat_type: String::from("Modern"),
+            friction: 2.0,
+            horizontal_kb: 0.4,
+            vertical_kb: 0.4,
+            vertical_limit: 0.4000000059604645,
+            extra_horizontal_kb: 0.5,
+            extra_vertical_kb: 0.1,
         }
     }
 }
