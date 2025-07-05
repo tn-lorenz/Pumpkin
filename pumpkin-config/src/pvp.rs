@@ -15,6 +15,9 @@ pub struct PVPConfig {
     pub swing: bool,
     /// The type of combat mechanics that are used by default. Options: "Legacy" (MC 1.7.10), "Classic" (MC 1.8), "Modern" (Current)
     pub combat_type: String,
+    /// Determines whether every sword's components should be overwritten to be blockable by default.
+    /// In case a server owner only wants certain swords to be blockable, they should set this to `false` use the plugin API instead.
+    pub override_sword_components: bool,
     /// 2.0 by default.
     pub friction: f64,
     /// 0.4 by default.
@@ -38,6 +41,7 @@ impl Default for PVPConfig {
             knockback: true,
             swing: true,
             combat_type: String::from("Modern"),
+            override_sword_components: false,
             friction: 2.0,
             horizontal_kb: 0.4,
             vertical_kb: 0.4,
