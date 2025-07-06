@@ -41,6 +41,7 @@ impl AttackType {
         let is_strong = if combat_modern {
             attack_cooldown_progress > 0.9
         } else {
+            // TODO: probably this is done differently, depending on current velocity in classic
             true
         };
 
@@ -105,37 +106,41 @@ pub async fn spawn_sweep_particle(attacker_entity: &Entity, world: &World, pos: 
 }
 
 pub async fn player_attack_sound(pos: &Vector3<f64>, world: &World, attack_type: AttackType) {
-    match attack_type {
+    let combat_type = GLOBAL_COMBAT_PROFILE.combat_type();
+
+    let sound = match attack_type {
         AttackType::Knockback => {
-            world
-                .play_sound(
-                    Sound::EntityPlayerAttackKnockback,
-                    SoundCategory::Players,
-                    pos,
-                )
-                .await;
+            if combat_type == CombatType::Modern {
+                Sound::EntityPlayerAttackKnockback
+            } else {
+                Sound::EntityPlayerHurt
+            }
         }
         AttackType::Critical => {
-            world
-                .play_sound(Sound::EntityPlayerAttackCrit, SoundCategory::Players, pos)
-                .await;
+            if combat_type == CombatType::Modern {
+                Sound::EntityPlayerAttackCrit
+            } else {
+                Sound::EntityPlayerHurt
+            }
         }
-        AttackType::Sweeping => {
-            world
-                .play_sound(Sound::EntityPlayerAttackSweep, SoundCategory::Players, pos)
-                .await;
-        }
+        AttackType::Sweeping => Sound::EntityPlayerAttackSweep,
         AttackType::Strong => {
-            world
-                .play_sound(Sound::EntityPlayerAttackStrong, SoundCategory::Players, pos)
-                .await;
+            if combat_type == CombatType::Modern {
+                Sound::EntityPlayerAttackStrong
+            } else {
+                Sound::EntityPlayerHurt
+            }
         }
         AttackType::Weak => {
-            world
-                .play_sound(Sound::EntityPlayerAttackWeak, SoundCategory::Players, pos)
-                .await;
+            if combat_type == CombatType::Modern {
+                Sound::EntityPlayerAttackWeak
+            } else {
+                Sound::EntityPlayerHurt
+            }
         }
-    }
+    };
+
+    world.play_sound(sound, SoundCategory::Players, pos).await;
 }
 
 /// This map represents per-player `CombatProfile`s, in-case plugins need to overwrite the settings inside `features.toml` for some players, but not all.
