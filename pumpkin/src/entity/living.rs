@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::atomic::AtomicI32};
 use super::EntityBase;
 use super::{Entity, EntityId, NBTStorage, effect::Effect};
 use crate::block::loot::{LootContextParameters, LootTableExt};
+use crate::entity::combat::{CombatType, GLOBAL_COMBAT_PROFILE};
 use crate::server::Server;
 use async_trait::async_trait;
 use crossbeam::atomic::AtomicCell;
@@ -24,7 +25,6 @@ use pumpkin_protocol::{
 use pumpkin_util::math::vector3::Vector3;
 use pumpkin_world::item::ItemStack;
 use tokio::sync::Mutex;
-use crate::entity::combat::{CombatType, GLOBAL_COMBAT_PROFILE};
 
 /// Represents a living entity within the game world.
 ///
@@ -357,9 +357,7 @@ impl EntityBase for LivingEntity {
         }
 
         if self.health.load() <= 0.0 {
-            let time = self
-                .death_time
-                .fetch_add(1, Relaxed);
+            let time = self.death_time.fetch_add(1, Relaxed);
             if time == 20 {
                 // Spawn Death particles
                 self.entity

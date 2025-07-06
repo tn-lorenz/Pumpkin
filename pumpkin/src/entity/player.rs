@@ -72,7 +72,10 @@ use pumpkin_world::entity::entity_data_flags::{
 use pumpkin_world::item::ItemStack;
 use pumpkin_world::level::{SyncChunk, SyncEntityChunk};
 
-use super::combat::{self, AttackType, player_attack_sound, CombatType, GLOBAL_COMBAT_PROFILE, classic_attack_entity_success};
+use super::combat::{
+    self, AttackType, CombatType, GLOBAL_COMBAT_PROFILE, classic_attack_entity_success,
+    player_attack_sound,
+};
 use super::effect::Effect;
 use super::hunger::HungerManager;
 use super::item::ItemEntity;
@@ -504,7 +507,7 @@ impl Player {
         let attack_success = if GLOBAL_COMBAT_PROFILE.combat_type() == CombatType::Modern {
             true
         } else {
-            classic_attack_entity_success(victim_entity, damage)
+            classic_attack_entity_success(victim.clone(), damage)
         };
 
         if attack_success {
@@ -541,7 +544,7 @@ impl Player {
                         victim_entity,
                         knockback_strength,
                     )
-                        .await;
+                    .await;
                 }
             }
             if config.swing {}

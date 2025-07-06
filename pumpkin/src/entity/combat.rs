@@ -8,16 +8,16 @@ use pumpkin_protocol::{codec::var_int::VarInt, java::client::play::CEntityVeloci
 use pumpkin_util::math::square;
 use pumpkin_util::math::vector3::Vector3;
 use rand::Rng;
+use std::sync::atomic::Ordering;
 use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::{Arc, LazyLock};
-use std::sync::atomic::Ordering;
 use uuid::Uuid;
 
+use crate::entity::EntityBase;
 use crate::{
     entity::{Entity, player::Player},
     world::World,
 };
-use crate::entity::EntityBase;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AttackType {
@@ -393,28 +393,26 @@ impl CombatProfile for ModernProfile {
 }
 
 pub fn classic_attack_entity_success(victim: Arc<dyn EntityBase>, mut damage: f64) -> bool {
-    if let Some(living) = victim.get_entity().living_entity.entity {
+    if let Some(living) = victim.get_living_entity() {
         let hurt_resistant_time = living.hurt_resistant_time.load(Ordering::Relaxed);
         let max_hurt_resistant_time = living.max_hurt_resistant_time.load(Ordering::Relaxed);
         let last_damage_taken = living.last_damage_taken.load();
 
         if hurt_resistant_time > max_hurt_resistant_time / 2 {
             if damage <= f64::from(last_damage_taken) {
-                log::info!("Attack unsuccessful, because damage <= last_damage_taken");
-                return false
+                return false;
             }
             damage = f64::from(damage as f32 - last_damage_taken);
             living.last_damage_taken.store(damage as f32);
         } else {
             living.last_damage_taken.store(damage as f32);
-            living.hurt_resistant_time.store(max_hurt_resistant_time, Ordering::Relaxed);
+            living
+                .hurt_resistant_time
+                .store(max_hurt_resistant_time, Ordering::Relaxed);
             living.hurt_time.store(10, Ordering::Relaxed);
         }
-        log::info!("Attack successful, because hurt_resistant_time > max_hurt_resistant_time / 2");
         true
     } else {
-        log::info!("Attack unsuccessful, because couldn't get LivingEntity");
-        log::info!("Victim entity type: {:?}", victim.entity_type);
         false
     }
 }
