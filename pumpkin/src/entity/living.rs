@@ -24,6 +24,7 @@ use pumpkin_protocol::{
 use pumpkin_util::math::vector3::Vector3;
 use pumpkin_world::item::ItemStack;
 use tokio::sync::Mutex;
+use crate::entity::combat::{CombatType, GLOBAL_COMBAT_PROFILE};
 
 /// Represents a living entity within the game world.
 ///
@@ -44,11 +45,15 @@ pub struct LivingEntity {
     pub fall_distance: AtomicCell<f32>,
     pub active_effects: Mutex<HashMap<EffectType, Effect>>,
     pub entity_equipment: Arc<Mutex<EntityEquipment>>,
+    /// Stuff for classic combat
+    pub hurt_time: AtomicU8,
+    pub hurt_resistant_time: AtomicU8,
+    pub max_hurt_resistant_time: AtomicU8,
 }
 impl LivingEntity {
     pub fn new(entity: Entity) -> Self {
         let pos = entity.pos.load();
-        Self {
+        let self_instance = Self {
             entity,
             last_pos: AtomicCell::new(pos),
             time_until_regen: AtomicI32::new(0),
@@ -58,7 +63,18 @@ impl LivingEntity {
             death_time: AtomicU8::new(0),
             active_effects: Mutex::new(HashMap::new()),
             entity_equipment: Arc::new(Mutex::new(EntityEquipment::new())),
-        }
+            hurt_time: AtomicU8::new(0),
+            hurt_resistant_time: AtomicU8::new(0),
+            max_hurt_resistant_time: AtomicU8::new(20),
+        };
+
+        log::info!(
+            "LivingEntity init: hurt_time={}, hurt_resistant_time={}, max_hurt_resistant_time={}",
+            self_instance.hurt_time.load(Relaxed),
+            self_instance.hurt_resistant_time.load(Relaxed),
+            self_instance.max_hurt_resistant_time.load(Relaxed),
+        );
+        self_instance
     }
 
     pub async fn send_equipment_changes(&self, equipment: &[(EquipmentSlot, ItemStack)]) {
@@ -326,10 +342,24 @@ impl EntityBase for LivingEntity {
         if self.time_until_regen.load(Relaxed) > 0 {
             self.time_until_regen.fetch_sub(1, Relaxed);
         }
+        // Tick the relevant values for classic combat if it is enabled
+        // TODO: do this on a per-entity basis?
+        let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
+        if !(combat_profile.combat_type() == CombatType::Modern) {
+            let ht = self.hurt_time.load(Relaxed);
+            if ht > 0 {
+                self.hurt_time.store(ht - 1, Relaxed);
+            }
+            let hrt = self.hurt_resistant_time.load(Relaxed);
+            if hrt > 0 {
+                self.hurt_resistant_time.store(hrt - 1, Relaxed);
+            }
+        }
+
         if self.health.load() <= 0.0 {
             let time = self
                 .death_time
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                .fetch_add(1, Relaxed);
             if time == 20 {
                 // Spawn Death particles
                 self.entity

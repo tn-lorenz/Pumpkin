@@ -72,7 +72,7 @@ use pumpkin_world::entity::entity_data_flags::{
 use pumpkin_world::item::ItemStack;
 use pumpkin_world::level::{SyncChunk, SyncEntityChunk};
 
-use super::combat::{self, AttackType, player_attack_sound};
+use super::combat::{self, AttackType, player_attack_sound, CombatType, GLOBAL_COMBAT_PROFILE, classic_attack_entity_success};
 use super::effect::Effect;
 use super::hunger::HungerManager;
 use super::item::ItemEntity;
@@ -447,6 +447,7 @@ impl Player {
         //self.world().level.list_cached();
     }
 
+    // TODO: Use `hurt_time` & `hurt_resistant_time` here for classic combat
     pub async fn attack(&self, victim: Arc<dyn EntityBase>) {
         let world = self.world().await;
         let victim_entity = victim.get_entity();
@@ -499,42 +500,52 @@ impl Player {
             damage *= 1.5;
         }
 
-        if !victim
-            .damage(damage as f32, DamageType::PLAYER_ATTACK)
-            .await
-        {
-            world
-                .play_sound(
-                    Sound::EntityPlayerAttackNodamage,
-                    SoundCategory::Players,
-                    &self.living_entity.entity.pos.load(),
-                )
-                .await;
-            return;
-        }
+        // If the CombatType is `Modern`, the attack is always successful, so it does not interfere with the previous code :O)
+        let attack_success = if GLOBAL_COMBAT_PROFILE.combat_type() == CombatType::Modern {
+            true
+        } else {
+            classic_attack_entity_success(victim_entity, damage)
+        };
 
-        if victim.get_living_entity().is_some() {
-            let mut knockback_strength = 1.0;
-            player_attack_sound(&pos, &world, attack_type).await;
-            match attack_type {
-                AttackType::Knockback => knockback_strength += 1.0,
-                AttackType::Sweeping => {
-                    combat::spawn_sweep_particle(attacker_entity, &world, &pos).await;
+        if attack_success {
+            log::info!("Attack successful");
+            if !victim
+                .damage(damage as f32, DamageType::PLAYER_ATTACK)
+                .await
+            {
+                world
+                    .play_sound(
+                        Sound::EntityPlayerAttackNodamage,
+                        SoundCategory::Players,
+                        &self.living_entity.entity.pos.load(),
+                    )
+                    .await;
+                return;
+            }
+
+            if victim.get_living_entity().is_some() {
+                let mut knockback_strength = 1.0;
+                player_attack_sound(&pos, &world, attack_type).await;
+                // TODO: this is probably handled differently in classic combat
+                match attack_type {
+                    AttackType::Knockback => knockback_strength += 1.0,
+                    AttackType::Sweeping => {
+                        combat::spawn_sweep_particle(attacker_entity, &world, &pos).await;
+                    }
+                    _ => {}
                 }
-                _ => {}
+                if config.knockback {
+                    combat::handle_knockback(
+                        attacker_entity,
+                        &world,
+                        victim_entity,
+                        knockback_strength,
+                    )
+                        .await;
+                }
             }
-            if config.knockback {
-                combat::handle_knockback(
-                    attacker_entity,
-                    &world,
-                    victim_entity,
-                    knockback_strength,
-                )
-                .await;
-            }
+            if config.swing {}
         }
-
-        if config.swing {}
     }
 
     pub async fn set_respawn_point(
