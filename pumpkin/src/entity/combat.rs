@@ -79,8 +79,8 @@ pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity,
 
 pub async fn spawn_sweep_particle(attacker_entity: &Entity, world: &World, pos: &Vector3<f64>) {
     let yaw = attacker_entity.yaw.load();
-    let d = -f64::from((yaw.to_radians()).sin());
-    let e = f64::from((yaw.to_radians()).cos());
+    let d = -f64::from(yaw.to_radians().sin());
+    let e = f64::from(yaw.to_radians().cos());
 
     let scale = 0.5;
     let body_y = pos.y + f64::from(attacker_entity.height()) * scale;
@@ -231,6 +231,8 @@ impl CombatProfile for ClassicProfile {
     }
 
     /// Getting called on a target, when being attacked
+    ///
+    /// The field `knockback_resistance` is currently missing from Pumpkin. Refer to [Issue #1013](https://github.com/Pumpkin-MC/Pumpkin/issues/1013) for details.
     // the `float p_70653_2_` from java is dead code, so I removed it
     fn receive_knockback(
         &self,
@@ -240,13 +242,11 @@ impl CombatProfile for ClassicProfile {
         knockback_z: f64,
     ) {
         let mut rng = rand::rng();
-        // TODO: Use the actual knockback_resistance when this field get's added (issue already created)
-        let knockback_resistance = 0.1;
+        // TODO: Use the actual value as soon as this field gets added to `Entity`.
+        let knockback_resistance = 0.5;
 
         if rng.random::<f64>() >= knockback_resistance {
-            // TODO: Use this
-            //let _ = !entity.on_ground.load(Relaxed);
-
+            entity.on_ground.store(false, Relaxed);
             let magnitude = (square(knockback_x) + square(knockback_z)).sqrt();
             let mut velocity = entity.velocity.load();
 
@@ -314,8 +314,8 @@ impl CombatProfile for ModernProfile {
 
         target.knockback(
             strength * 0.5,
-            f64::from((yaw.to_radians()).sin()),
-            f64::from(-(yaw.to_radians()).cos()),
+            f64::from(yaw.to_radians().sin()),
+            f64::from(-yaw.to_radians().cos()),
         );
     }
 
