@@ -37,7 +37,7 @@ use std::sync::{
     Arc,
     atomic::{
         AtomicBool, AtomicI32, AtomicU32,
-        Ordering::{self, Relaxed},
+        Ordering::{self, Acquire, Relaxed, Release},
     },
 };
 use tokio::sync::{Mutex, RwLock};
@@ -600,12 +600,12 @@ impl Entity {
 
     pub async fn set_sprinting(&self, sprinting: bool) {
         assert!(self.sprinting.load(Relaxed) != sprinting);
-        self.sprinting.store(sprinting, Relaxed);
+        self.sprinting.store(sprinting, Release);
         self.set_flag(Flag::Sprinting, sprinting).await;
     }
 
     pub fn check_fall_flying(&self) -> bool {
-        !self.on_ground.load(Relaxed)
+        !self.on_ground.load(Acquire)
     }
 
     pub async fn set_fall_flying(&self, fall_flying: bool) {
@@ -857,7 +857,7 @@ impl EntityBase for Entity {
             NbtTag::List(vec![self.yaw.load().into(), self.pitch.load().into()]),
         );
         nbt.put_short("Fire", self.fire_ticks.load(Relaxed) as i16);
-        nbt.put_bool("OnGround", self.on_ground.load(Relaxed));
+        nbt.put_bool("OnGround", self.on_ground.load(Acquire));
         nbt.put_bool("Invulnerable", self.invulnerable.load(Relaxed));
         nbt.put_int("PortalCooldown", self.portal_cooldown.load(Relaxed) as i32);
         if self.has_visual_fire.load(Relaxed) {

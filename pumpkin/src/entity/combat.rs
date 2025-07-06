@@ -8,7 +8,7 @@ use pumpkin_protocol::{codec::var_int::VarInt, java::client::play::CEntityVeloci
 use pumpkin_util::math::square;
 use pumpkin_util::math::vector3::Vector3;
 use rand::Rng;
-use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::{Arc, LazyLock};
 use uuid::Uuid;
 
@@ -28,14 +28,23 @@ pub enum AttackType {
 
 impl AttackType {
     pub async fn new(player: &Player, attack_cooldown_progress: f32) -> Self {
+        let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
         let entity = &player.living_entity.entity;
 
-        let sprinting = entity.sprinting.load(Relaxed);
-        let on_ground = entity.on_ground.load(Relaxed);
+        let sprinting = entity.sprinting.load(Acquire);
+        let on_ground = entity.on_ground.load(Acquire);
         let fall_distance = player.living_entity.fall_distance.load();
         let sword = player.inventory().held_item().lock().await.is_sword();
 
-        let is_strong = attack_cooldown_progress > 0.9;
+        let mut is_strong;
+        let combat_modern = combat_profile.combat_type() == CombatType::Modern;
+
+        if combat_modern {
+            is_strong = attack_cooldown_progress > 0.9
+        } else {
+            is_strong = true;
+        }
+
         if sprinting && is_strong {
             return Self::Knockback;
         }
@@ -47,7 +56,7 @@ impl AttackType {
         }
 
         // TODO: movement speed check
-        if sword && is_strong {
+        if sword && is_strong && combat_modern {
             // !is_crit, !is_knockback_hit, on_ground omitted
             return Self::Sweeping;
         }
@@ -70,7 +79,7 @@ pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity,
     attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
 
     if !(combat_profile.combat_type() == CombatType::Modern) {
-        attacker.sprinting.store(false, Relaxed);
+        attacker.sprinting.store(false, Release);
     }
 
     victim.velocity.store(saved_velo);
@@ -246,7 +255,7 @@ impl CombatProfile for ClassicProfile {
         let knockback_resistance = 0.5;
 
         if rng.random::<f64>() >= knockback_resistance {
-            entity.on_ground.store(false, Relaxed);
+            entity.on_ground.store(false, Release);
             let magnitude = (square(knockback_x) + square(knockback_z)).sqrt();
             let mut velocity = entity.velocity.load();
 
@@ -339,7 +348,7 @@ impl CombatProfile for ModernProfile {
         let velocity = entity.velocity.load();
         entity.velocity.store(Vector3::new(
             velocity.x / 2.0 - var8.x,
-            if entity.on_ground.load(Relaxed) {
+            if entity.on_ground.load(Acquire) {
                 (velocity.y / 2.0 + strength).min(0.4)
             } else {
                 velocity.y
