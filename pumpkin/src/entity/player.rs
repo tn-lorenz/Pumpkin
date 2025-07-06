@@ -489,7 +489,7 @@ impl Player {
         let attack_success = if GLOBAL_COMBAT_PROFILE.combat_type() == CombatType::Modern {
             true
         } else {
-            classic_attack_entity_success(victim.clone(), damage)
+            classic_attack_entity_success(&victim.clone(), damage)
         };
 
         if attack_success {
