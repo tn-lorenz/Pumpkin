@@ -36,14 +36,13 @@ impl AttackType {
         let fall_distance = player.living_entity.fall_distance.load();
         let sword = player.inventory().held_item().lock().await.is_sword();
 
-        let mut is_strong;
         let combat_modern = combat_profile.combat_type() == CombatType::Modern;
 
-        if combat_modern {
-            is_strong = attack_cooldown_progress > 0.9
+        let is_strong = if combat_modern {
+            attack_cooldown_progress > 0.9
         } else {
-            is_strong = true;
-        }
+            true
+        };
 
         if sprinting && is_strong {
             return Self::Knockback;
@@ -252,7 +251,7 @@ impl CombatProfile for ClassicProfile {
     ) {
         let mut rng = rand::rng();
         // TODO: Use the actual value as soon as this field gets added to `Entity`.
-        let knockback_resistance = 0.5;
+        let knockback_resistance = 0.1;
 
         if rng.random::<f64>() >= knockback_resistance {
             entity.on_ground.store(false, Release);
