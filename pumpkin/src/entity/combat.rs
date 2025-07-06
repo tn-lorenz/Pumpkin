@@ -392,7 +392,7 @@ impl CombatProfile for ModernProfile {
     }
 }
 
-pub fn classic_attack_entity_success(victim: Arc<dyn EntityBase>, mut damage: f64) -> bool {
+pub fn classic_attack_entity_success(victim: &Arc<dyn EntityBase>, mut damage: f64) -> bool {
     if let Some(living) = victim.get_living_entity() {
         let hurt_resistant_time = living.hurt_resistant_time.load(Ordering::Relaxed);
         let max_hurt_resistant_time = living.max_hurt_resistant_time.load(Ordering::Relaxed);

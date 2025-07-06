@@ -68,11 +68,6 @@ use super::combat::{
     self, AttackType, CombatType, GLOBAL_COMBAT_PROFILE, classic_attack_entity_success,
     player_attack_sound,
 };
-use super::effect::Effect;
-use super::hunger::HungerManager;
-use super::item::ItemEntity;
-use super::living::LivingEntity;
-use super::{Entity, EntityBase, EntityId, NBTStorage};
 
 use crate::block::blocks::bed::BedBlock;
 use crate::command::client_suggestions;
@@ -87,7 +82,6 @@ use crate::server::Server;
 use crate::world::World;
 use crate::{PERMISSION_MANAGER, block};
 
-use super::combat::{self, AttackType, player_attack_sound};
 use super::effect::Effect;
 use super::hunger::HungerManager;
 use super::item::ItemEntity;
@@ -499,7 +493,6 @@ impl Player {
         };
 
         if attack_success {
-            log::info!("Attack successful");
             if !victim
                 .damage(damage as f32, DamageType::PLAYER_ATTACK)
                 .await
