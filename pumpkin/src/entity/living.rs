@@ -1,7 +1,6 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering::{Relaxed, Acquire, Release}};
 use std::{collections::HashMap, sync::atomic::AtomicI32};
-
 use super::EntityBase;
 use super::{Entity, EntityId, NBTStorage, effect::Effect};
 use crate::block::loot::{LootContextParameters, LootTableExt};
@@ -49,6 +48,7 @@ pub struct LivingEntity {
     pub hurt_time: AtomicU8,
     pub hurt_resistant_time: AtomicU8,
     pub max_hurt_resistant_time: AtomicU8,
+    pub velocity_changed: AtomicBool,
 }
 impl LivingEntity {
     pub fn new(entity: Entity) -> Self {
@@ -66,6 +66,7 @@ impl LivingEntity {
             hurt_time: AtomicU8::new(0),
             hurt_resistant_time: AtomicU8::new(0),
             max_hurt_resistant_time: AtomicU8::new(20),
+            velocity_changed: AtomicBool::new(false),
         };
 
         log::info!(
@@ -343,16 +344,14 @@ impl EntityBase for LivingEntity {
             self.time_until_regen.fetch_sub(1, Relaxed);
         }
         // Tick the relevant values for classic combat if it is enabled
-        // TODO: do this on a per-entity basis?
-        let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
-        if !(combat_profile.combat_type() == CombatType::Modern) {
-            let ht = self.hurt_time.load(Relaxed);
+        if GLOBAL_COMBAT_PROFILE.clone().combat_type() != CombatType::Modern {
+            let ht = self.hurt_time.load(Acquire);
             if ht > 0 {
-                self.hurt_time.store(ht - 1, Relaxed);
+                self.hurt_time.store(ht - 1, Release);
             }
-            let hrt = self.hurt_resistant_time.load(Relaxed);
+            let hrt = self.hurt_resistant_time.load(Acquire);
             if hrt > 0 {
-                self.hurt_resistant_time.store(hrt - 1, Relaxed);
+                self.hurt_resistant_time.store(hrt - 1, Release);
             }
         }
 

@@ -8,9 +8,9 @@ use pumpkin_protocol::{codec::var_int::VarInt, java::client::play::CEntityVeloci
 use pumpkin_util::math::square;
 use pumpkin_util::math::vector3::Vector3;
 use rand::Rng;
-use std::sync::atomic::Ordering;
 use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 use uuid::Uuid;
 
 use crate::entity::EntityBase;
@@ -68,6 +68,7 @@ impl AttackType {
 }
 
 pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity, strength: f64) {
+    let start = Instant::now();
     let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
 
     let saved_velo = victim.velocity.load();
@@ -86,6 +87,8 @@ pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity,
 
     victim.velocity.store(saved_velo);
     world.broadcast_packet_all(&packet).await;
+    let duration = start.elapsed();
+    log::info!("handle_knockback took: {:?}", duration);
 }
 
 pub async fn spawn_sweep_particle(attacker_entity: &Entity, world: &World, pos: &Vector3<f64>) {
@@ -227,6 +230,7 @@ impl CombatProfile for ClassicProfile {
     // TODO: send update packet, but maybe do that when this fn is called
     /// Getting called from an attacker, when attacking an entity
     fn apply_attack_knockback(&self, attacker: &Entity, target: &Entity, strength: f64) {
+        let start = Instant::now();
         // TODO: Velocity changed flag? + critical hit flag?
         let yaw: f64 = f64::from(attacker.yaw.load());
         let yaw_rad = yaw.to_radians();
@@ -243,6 +247,8 @@ impl CombatProfile for ClassicProfile {
         ));
 
         target.knockback(strength * 0.5, knockback_x, knockback_z);
+        let duration = start.elapsed();
+        log::info!("apply_attack_knockback took: {:?}", duration);
     }
 
     /// Getting called on a target, when being attacked
@@ -256,6 +262,7 @@ impl CombatProfile for ClassicProfile {
         knockback_x: f64,
         knockback_z: f64,
     ) {
+        let start = Instant::now();
         let mut rng = rand::rng();
         // TODO: Use the actual value as soon as this field gets added to `Entity`.
         let knockback_resistance = 0.1;
@@ -280,6 +287,8 @@ impl CombatProfile for ClassicProfile {
                 velocity.y = self.vertical_limit;
             }
             entity.velocity.store(velocity);
+            let duration = start.elapsed();
+            log::info!("receive_knockback took: {:?}", duration);
         }
     }
 
@@ -393,9 +402,11 @@ impl CombatProfile for ModernProfile {
 }
 
 pub fn classic_attack_entity_success(victim: &Arc<dyn EntityBase>, mut damage: f64) -> bool {
-    if let Some(living) = victim.get_living_entity() {
-        let hurt_resistant_time = living.hurt_resistant_time.load(Ordering::Relaxed);
-        let max_hurt_resistant_time = living.max_hurt_resistant_time.load(Ordering::Relaxed);
+    let start = Instant::now();
+
+    let result = if let Some(living) = victim.get_living_entity() {
+        let hurt_resistant_time = living.hurt_resistant_time.load(Acquire);
+        let max_hurt_resistant_time = living.max_hurt_resistant_time.load(Acquire);
         let last_damage_taken = living.last_damage_taken.load();
 
         if hurt_resistant_time > max_hurt_resistant_time / 2 {
@@ -408,13 +419,16 @@ pub fn classic_attack_entity_success(victim: &Arc<dyn EntityBase>, mut damage: f
             living.last_damage_taken.store(damage as f32);
             living
                 .hurt_resistant_time
-                .store(max_hurt_resistant_time, Ordering::Relaxed);
-            living.hurt_time.store(10, Ordering::Relaxed);
+                .store(max_hurt_resistant_time, Release);
+            living.hurt_time.store(10, Release);
         }
         true
     } else {
         false
-    }
+    };
+    let duration = start.elapsed();
+    log::info!("classic_attack_entity took: {:?}", duration);
+    result
 }
 
 impl CombatType {

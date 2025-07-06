@@ -432,7 +432,6 @@ impl Player {
         //self.world().level.list_cached();
     }
 
-    // TODO: Use `hurt_time` & `hurt_resistant_time` here for classic combat
     pub async fn attack(&self, victim: Arc<dyn EntityBase>) {
         let world = self.world().await;
         let victim_entity = victim.get_entity();
@@ -467,7 +466,7 @@ impl Player {
         let attack_speed = base_attack_speed + add_speed;
 
         let attack_cooldown_progress = self.get_attack_cooldown_progress(0.5, attack_speed);
-        self.last_attacked_ticks.store(0, Ordering::Relaxed);
+        self.last_attacked_ticks.store(0, Ordering::Release);
 
         // Only reduce attack damage if in cooldown
         // TODO: Enchantments are reduced in the same way, just without the square.
@@ -842,7 +841,7 @@ impl Player {
     }
 
     pub async fn jump(&self) {
-        if self.living_entity.entity.sprinting.load(Ordering::Relaxed) {
+        if self.living_entity.entity.sprinting.load(Ordering::Acquire) {
             self.add_exhaustion(0.2).await;
         } else {
             self.add_exhaustion(0.05).await;
@@ -852,10 +851,10 @@ impl Player {
     #[expect(clippy::cast_precision_loss)]
     pub async fn progress_motion(&self, delta_pos: Vector3<f64>) {
         // TODO: Swimming, gliding...
-        if self.living_entity.entity.on_ground.load(Ordering::Relaxed) {
+        if self.living_entity.entity.on_ground.load(Ordering::Acquire) {
             let delta = (delta_pos.horizontal_length() * 100.0).round() as i32;
             if delta > 0 {
-                if self.living_entity.entity.sprinting.load(Ordering::Relaxed) {
+                if self.living_entity.entity.sprinting.load(Ordering::Acquire) {
                     self.add_exhaustion(0.1 * delta as f32 * 0.01).await;
                 } else {
                     self.add_exhaustion(0.0 * delta as f32 * 0.01).await;
