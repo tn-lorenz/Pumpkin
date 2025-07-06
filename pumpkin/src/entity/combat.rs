@@ -59,12 +59,21 @@ impl AttackType {
 pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity, strength: f64) {
     let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
 
+    let saved_velo = victim.velocity.load();
     combat_profile.apply_attack_knockback(attacker, victim, strength);
 
     let entity_id = VarInt(victim.entity_id);
-    let target_velocity = victim.velocity.load();
-    let packet = CEntityVelocity::new(entity_id, target_velocity);
+    let victim_velocity = victim.velocity.load();
 
+    let packet = CEntityVelocity::new(entity_id, victim_velocity);
+    let velocity = attacker.velocity.load();
+    attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
+
+    if !(combat_profile.combat_type() == CombatType::Modern) {
+        attacker.sprinting.store(false, Relaxed);
+    }
+
+    victim.velocity.store(saved_velo);
     world.broadcast_packet_all(&packet).await;
 }
 
@@ -131,22 +140,28 @@ pub static GLOBAL_COMBAT_PROFILE: LazyLock<Arc<dyn CombatProfile + Send + Sync>>
         let config = &advanced_config().pvp;
 
         match config.combat_type.to_lowercase().as_str() {
-            "classic" => Arc::new(ClassicProfile {
-                friction: config.friction,
-                horizontal_kb: config.horizontal_kb,
-                vertical_kb: config.vertical_kb,
-                vertical_limit: config.vertical_limit,
-                extra_horizontal_kb: config.extra_horizontal_kb,
-                extra_vertical_kb: config.extra_vertical_kb,
-            }),
-            "modern" => Arc::new(ModernProfile {
-                friction: config.friction,
-                horizontal_kb: config.horizontal_kb,
-                vertical_kb: config.vertical_kb,
-                vertical_limit: config.vertical_limit,
-                extra_horizontal_kb: config.extra_horizontal_kb,
-                extra_vertical_kb: config.extra_vertical_kb,
-            }),
+            "classic" => {
+                log::debug!("Loaded Classic Combat Profile");
+                Arc::new(ClassicProfile {
+                    friction: config.friction,
+                    horizontal_kb: config.horizontal_kb,
+                    vertical_kb: config.vertical_kb,
+                    vertical_limit: config.vertical_limit,
+                    extra_horizontal_kb: config.extra_horizontal_kb,
+                    extra_vertical_kb: config.extra_vertical_kb,
+                })
+            }
+            "modern" => {
+                log::debug!("Loaded Modern Combat Profile");
+                Arc::new(ModernProfile {
+                    friction: config.friction,
+                    horizontal_kb: config.horizontal_kb,
+                    vertical_kb: config.vertical_kb,
+                    vertical_limit: config.vertical_limit,
+                    extra_horizontal_kb: config.extra_horizontal_kb,
+                    extra_vertical_kb: config.extra_vertical_kb,
+                })
+            }
             unknown => {
                 log::warn!(
                     "Combat Profile '{unknown}' does not exist! Falling back to Modern Combat Profile instead."
@@ -198,28 +213,21 @@ impl CombatProfile for ClassicProfile {
     /// Getting called from an attacker, when attacking an entity
     fn apply_attack_knockback(&self, attacker: &Entity, target: &Entity, strength: f64) {
         // TODO: Velocity changed flag? + critical hit flag?
-        let yaw: f64 = f64::from(target.yaw.load());
+        let yaw: f64 = f64::from(attacker.yaw.load());
         let yaw_rad = yaw.to_radians();
 
         // The `extra_horizontal_kb` is 0.5 and `extra_vertical_kb` 0.1 by default in java mc 1.8
-        let knockback_x = -yaw_rad.sin() * strength * self.extra_horizontal_kb;
-        let knockback_z = yaw_rad.cos() * strength * self.extra_horizontal_kb;
-        let knockback_y = self.extra_vertical_kb;
+        let knockback_x = yaw_rad.sin() * strength * self.extra_horizontal_kb;
+        let knockback_z = -yaw_rad.cos() * strength * self.extra_horizontal_kb;
 
-        let mut velocity = target.velocity.load();
+        let velocity = target.velocity.load();
+        target.velocity.store(Vector3::new(
+            velocity.x,
+            velocity.y + self.extra_vertical_kb,
+            velocity.z,
+        ));
 
-        velocity.x += knockback_x;
-        velocity.y += knockback_y;
-        velocity.z += knockback_z;
-
-        let mut attacker_velocity = attacker.velocity.load();
-        attacker_velocity.x *= 0.6;
-        attacker_velocity.z *= 0.6;
-
-        // TODO: ADD not STORE the velocity ? Lune I'm confused
-        target.velocity.store(velocity);
-
-        attacker.sprinting.store(false, Relaxed);
+        target.knockback(strength * 0.5, knockback_x, knockback_z);
     }
 
     /// Getting called on a target, when being attacked
@@ -233,11 +241,11 @@ impl CombatProfile for ClassicProfile {
     ) {
         let mut rng = rand::rng();
         // TODO: Use the actual knockback_resistance when this field get's added (issue already created)
-        let knockback_resistance = 0.5;
+        let knockback_resistance = 0.1;
 
         if rng.random::<f64>() >= knockback_resistance {
             // TODO: Use this
-            let _ = !entity.on_ground.load(Relaxed);
+            //let _ = !entity.on_ground.load(Relaxed);
 
             let magnitude = (square(knockback_x) + square(knockback_z)).sqrt();
             let mut velocity = entity.velocity.load();
@@ -256,6 +264,7 @@ impl CombatProfile for ClassicProfile {
             if velocity.y > self.vertical_limit {
                 velocity.y = self.vertical_limit;
             }
+            entity.velocity.store(velocity);
         }
     }
 
@@ -303,18 +312,11 @@ impl CombatProfile for ModernProfile {
     fn apply_attack_knockback(&self, attacker: &Entity, target: &Entity, strength: f64) {
         let yaw = attacker.yaw.load();
 
-        let saved_velo = target.velocity.load();
         target.knockback(
             strength * 0.5,
-            f64::from(yaw.to_radians().sin()),
-            f64::from(-yaw.to_radians().cos()),
+            f64::from((yaw.to_radians()).sin()),
+            f64::from(-(yaw.to_radians()).cos()),
         );
-
-        let velocity = attacker.velocity.load();
-
-        attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
-
-        target.velocity.store(saved_velo);
     }
 
     fn receive_knockback(
@@ -372,5 +374,16 @@ impl CombatProfile for ModernProfile {
 
     fn extra_vertical_kb(&self) -> f64 {
         self.extra_vertical_kb
+    }
+}
+
+impl CombatType {
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Legacy => "Legacy",
+            Self::Classic => "Classic",
+            Self::Modern => "Modern",
+        }
     }
 }
