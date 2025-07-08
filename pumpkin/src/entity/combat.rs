@@ -1,3 +1,8 @@
+use crate::entity::{EntityBase, Flag};
+use crate::{
+    entity::{Entity, player::Player},
+    world::World,
+};
 use dashmap::DashMap;
 use pumpkin_config::advanced_config;
 use pumpkin_data::{
@@ -10,14 +15,7 @@ use pumpkin_util::math::vector3::Vector3;
 use rand::Rng;
 use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::{Arc, LazyLock};
-use std::time::Instant;
 use uuid::Uuid;
-
-use crate::entity::EntityBase;
-use crate::{
-    entity::{Entity, player::Player},
-    world::World,
-};
 
 #[derive(Debug, Clone, Copy)]
 pub enum AttackType {
@@ -68,7 +66,6 @@ impl AttackType {
 }
 
 pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity, strength: f64) {
-    let start = Instant::now();
     let combat_profile = GLOBAL_COMBAT_PROFILE.clone();
 
     let saved_velo = victim.velocity.load();
@@ -81,14 +78,13 @@ pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity,
     let velocity = attacker.velocity.load();
     attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
 
-    if !(combat_profile.combat_type() == CombatType::Modern) {
+    if combat_profile.combat_type() != CombatType::Modern {
+        attacker.set_flag(Flag::Sprinting, false).await;
         attacker.sprinting.store(false, Release);
     }
 
     victim.velocity.store(saved_velo);
     world.broadcast_packet_all(&packet).await;
-    let duration = start.elapsed();
-    log::info!("handle_knockback took: {:?}", duration);
 }
 
 pub async fn spawn_sweep_particle(attacker_entity: &Entity, world: &World, pos: &Vector3<f64>) {
@@ -153,6 +149,7 @@ pub static COMBAT_PROFILES: LazyLock<DashMap<Uuid, Arc<dyn CombatProfile + Send 
     LazyLock::new(DashMap::new);
 
 /// This is a global in-memory cache that holds the current knockback configuration.
+// TODO: Better error handling
 pub static GLOBAL_COMBAT_PROFILE: LazyLock<Arc<dyn CombatProfile + Send + Sync>> = LazyLock::new(
     || {
         let config = &advanced_config().pvp;
@@ -199,9 +196,18 @@ pub static GLOBAL_COMBAT_PROFILE: LazyLock<Arc<dyn CombatProfile + Send + Sync>>
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CombatType {
-    Legacy,
     Classic,
     Modern,
+}
+
+impl CombatType {
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Classic => "Classic",
+            Self::Modern => "Modern",
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -227,11 +233,8 @@ pub struct ClassicProfile {
 }
 
 impl CombatProfile for ClassicProfile {
-    // TODO: send update packet, but maybe do that when this fn is called
     /// Getting called from an attacker, when attacking an entity
     fn apply_attack_knockback(&self, attacker: &Entity, target: &Entity, strength: f64) {
-        let start = Instant::now();
-        // TODO: Velocity changed flag? + critical hit flag?
         let yaw: f64 = f64::from(attacker.yaw.load());
         let yaw_rad = yaw.to_radians();
 
@@ -240,6 +243,7 @@ impl CombatProfile for ClassicProfile {
         let knockback_z = -yaw_rad.cos() * strength * self.extra_horizontal_kb;
 
         let velocity = target.velocity.load();
+
         target.velocity.store(Vector3::new(
             velocity.x,
             velocity.y + self.extra_vertical_kb,
@@ -247,8 +251,6 @@ impl CombatProfile for ClassicProfile {
         ));
 
         target.knockback(strength * 0.5, knockback_x, knockback_z);
-        let duration = start.elapsed();
-        log::info!("apply_attack_knockback took: {:?}", duration);
     }
 
     /// Getting called on a target, when being attacked
@@ -262,10 +264,9 @@ impl CombatProfile for ClassicProfile {
         knockback_x: f64,
         knockback_z: f64,
     ) {
-        let start = Instant::now();
         let mut rng = rand::rng();
         // TODO: Use the actual value as soon as this field gets added to `Entity`.
-        let knockback_resistance = 0.1;
+        let knockback_resistance = 0.0;
 
         if rng.random::<f64>() >= knockback_resistance {
             entity.on_ground.store(false, Release);
@@ -286,9 +287,8 @@ impl CombatProfile for ClassicProfile {
             if velocity.y > self.vertical_limit {
                 velocity.y = self.vertical_limit;
             }
+
             entity.velocity.store(velocity);
-            let duration = start.elapsed();
-            log::info!("receive_knockback took: {:?}", duration);
         }
     }
 
@@ -319,6 +319,42 @@ impl CombatProfile for ClassicProfile {
     fn extra_vertical_kb(&self) -> f64 {
         self.extra_vertical_kb
     }
+}
+
+/// An `enum` of possible classic `CombatProfile` attack outcomes to be returned in `classic_attack_entity_success`.
+pub enum ClassicEntityAttackSuccessType {
+    /// Full damage and knockback are applied, because `hurt_time` already reset.
+    SmallerHrt,
+    /// Reduced damage and no knockback are applied, due to `hurt_time` not having reset yet.
+    GreaterHrt,
+    /// No damage and no knockback are applied/something went wrong.
+    False,
+}
+
+/// Determines the outcome of a classic `CombatProfile` attack.
+pub async fn classic_attack_entity_success(
+    victim: &Arc<dyn EntityBase>,
+    damage: f64,
+) -> ClassicEntityAttackSuccessType {
+    victim
+        .get_living_entity()
+        .map_or(ClassicEntityAttackSuccessType::False, |living| {
+            let hurt_resistant_time = living.hurt_resistant_time.load(Acquire);
+            let max_hurt_resistant_time = living.max_hurt_resistant_time.load(Acquire);
+            let last_damage_taken = living.last_damage_taken.load();
+
+            if hurt_resistant_time > max_hurt_resistant_time / 2 {
+                if damage <= f64::from(last_damage_taken) {
+                    ClassicEntityAttackSuccessType::False
+                } else {
+                    ClassicEntityAttackSuccessType::GreaterHrt
+                }
+            } else if hurt_resistant_time == 0 {
+                ClassicEntityAttackSuccessType::SmallerHrt
+            } else {
+                ClassicEntityAttackSuccessType::False
+            }
+        })
 }
 
 // TODO: Hier sind andere Werte wichtig -> ändern
@@ -398,46 +434,5 @@ impl CombatProfile for ModernProfile {
 
     fn extra_vertical_kb(&self) -> f64 {
         self.extra_vertical_kb
-    }
-}
-
-pub fn classic_attack_entity_success(victim: &Arc<dyn EntityBase>, mut damage: f64) -> bool {
-    let start = Instant::now();
-
-    let result = if let Some(living) = victim.get_living_entity() {
-        let hurt_resistant_time = living.hurt_resistant_time.load(Acquire);
-        let max_hurt_resistant_time = living.max_hurt_resistant_time.load(Acquire);
-        let last_damage_taken = living.last_damage_taken.load();
-
-        if hurt_resistant_time > max_hurt_resistant_time / 2 {
-            if damage <= f64::from(last_damage_taken) {
-                return false;
-            }
-            damage = f64::from(damage as f32 - last_damage_taken);
-            living.last_damage_taken.store(damage as f32);
-        } else {
-            living.last_damage_taken.store(damage as f32);
-            living
-                .hurt_resistant_time
-                .store(max_hurt_resistant_time, Release);
-            living.hurt_time.store(10, Release);
-        }
-        true
-    } else {
-        false
-    };
-    let duration = start.elapsed();
-    log::info!("classic_attack_entity took: {:?}", duration);
-    result
-}
-
-impl CombatType {
-    #[must_use]
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Legacy => "Legacy",
-            Self::Classic => "Classic",
-            Self::Modern => "Modern",
-        }
     }
 }

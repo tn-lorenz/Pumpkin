@@ -331,8 +331,8 @@ impl Entity {
     }
 
     async fn tick_portal(&self, caller: &Arc<dyn EntityBase>) {
-        if self.portal_cooldown.load(Ordering::Relaxed) > 0 {
-            self.portal_cooldown.fetch_sub(1, Ordering::Relaxed);
+        if self.portal_cooldown.load(Relaxed) > 0 {
+            self.portal_cooldown.fetch_sub(1, Relaxed);
         }
         let mut manager_guard = self.portal_manager.lock().await;
         // I know this is ugly, but a quick fix because i can't modify the thing while using it
@@ -342,7 +342,7 @@ impl Entity {
             if portal_manager.tick() {
                 // reset cooldown
                 self.portal_cooldown
-                    .store(self.default_portal_cooldown(), Ordering::Relaxed);
+                    .store(self.default_portal_cooldown(), Relaxed);
                 let pos = self.pos.load();
                 // TODO: this is bad
                 let scale_factor_new = if portal_manager.portal_world.dimension_type
@@ -381,9 +381,9 @@ impl Entity {
     }
 
     pub async fn try_use_portal(&self, portal_delay: u32, portal_world: Arc<World>, pos: BlockPos) {
-        if self.portal_cooldown.load(Ordering::Relaxed) > 0 {
+        if self.portal_cooldown.load(Relaxed) > 0 {
             self.portal_cooldown
-                .store(self.default_portal_cooldown(), Ordering::Relaxed);
+                .store(self.default_portal_cooldown(), Relaxed);
             return;
         }
         let mut manager = self.portal_manager.lock().await;
@@ -402,7 +402,7 @@ impl Entity {
 
     /// Extinguishes this entity.
     pub fn extinguish(&self) {
-        self.fire_ticks.store(0, Ordering::Relaxed);
+        self.fire_ticks.store(0, Relaxed);
     }
 
     pub fn set_on_fire_for(&self, seconds: f32) {
@@ -410,8 +410,8 @@ impl Entity {
     }
 
     pub fn set_on_fire_for_ticks(&self, ticks: u32) {
-        if self.fire_ticks.load(Ordering::Relaxed) < ticks as i32 {
-            self.fire_ticks.store(ticks as i32, Ordering::Relaxed);
+        if self.fire_ticks.load(Relaxed) < ticks as i32 {
+            self.fire_ticks.store(ticks as i32, Relaxed);
         }
         // TODO: defrost
     }
@@ -472,8 +472,8 @@ impl Entity {
     }
 
     pub async fn set_on_fire(&self, on_fire: bool) {
-        if self.has_visual_fire.load(Ordering::Relaxed) != on_fire {
-            self.has_visual_fire.store(on_fire, Ordering::Relaxed);
+        if self.has_visual_fire.load(Relaxed) != on_fire {
+            self.has_visual_fire.store(on_fire, Relaxed);
             self.set_flag(Flag::OnFire, on_fire).await;
         }
     }
@@ -599,7 +599,7 @@ impl Entity {
     }
 
     pub async fn set_sprinting(&self, sprinting: bool) {
-        assert!(self.sprinting.load(Relaxed) != sprinting);
+        assert_ne!(self.sprinting.load(Acquire), sprinting);
         self.sprinting.store(sprinting, Release);
         self.set_flag(Flag::Sprinting, sprinting).await;
     }
@@ -780,11 +780,11 @@ impl EntityBase for Entity {
 
     async fn tick(&self, caller: Arc<dyn EntityBase>, _server: &Server) {
         self.tick_portal(&caller).await;
-        let fire_ticks = self.fire_ticks.load(Ordering::Relaxed);
+        let fire_ticks = self.fire_ticks.load(Relaxed);
         if fire_ticks > 0 {
             if self.entity_type.fire_immune {
-                self.fire_ticks.store(fire_ticks - 4, Ordering::Relaxed);
-                if self.fire_ticks.load(Ordering::Relaxed) < 0 {
+                self.fire_ticks.store(fire_ticks - 4, Relaxed);
+                if self.fire_ticks.load(Relaxed) < 0 {
                     self.extinguish();
                 }
             } else {
@@ -792,11 +792,10 @@ impl EntityBase for Entity {
                     caller.damage(1.0, DamageType::ON_FIRE).await;
                 }
 
-                self.fire_ticks.store(fire_ticks - 1, Ordering::Relaxed);
+                self.fire_ticks.store(fire_ticks - 1, Relaxed);
             }
         }
-        self.set_on_fire(self.fire_ticks.load(Ordering::Relaxed) > 0)
-            .await;
+        self.set_on_fire(self.fire_ticks.load(Relaxed) > 0).await;
         // TODO: Tick
     }
 

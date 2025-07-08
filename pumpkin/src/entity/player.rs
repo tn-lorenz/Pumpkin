@@ -3,6 +3,7 @@ use std::f64::consts::TAU;
 use std::num::NonZeroU8;
 use std::ops::AddAssign;
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Release;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
@@ -65,8 +66,8 @@ use pumpkin_world::item::ItemStack;
 use pumpkin_world::level::{SyncChunk, SyncEntityChunk};
 
 use super::combat::{
-    self, AttackType, CombatType, GLOBAL_COMBAT_PROFILE, classic_attack_entity_success,
-    player_attack_sound,
+    self, AttackType, ClassicEntityAttackSuccessType, CombatType, GLOBAL_COMBAT_PROFILE,
+    classic_attack_entity_success, player_attack_sound,
 };
 
 use crate::block::blocks::bed::BedBlock;
@@ -484,14 +485,12 @@ impl Player {
             damage *= 1.5;
         }
 
-        // If the CombatType is `Modern`, the attack is always successful, so it does not interfere with the previous code :O)
-        let attack_success = if GLOBAL_COMBAT_PROFILE.combat_type() == CombatType::Modern {
-            true
-        } else {
-            classic_attack_entity_success(&victim.clone(), damage)
-        };
+        // If the CombatType is `Modern`, the attack and knockback are always successful, so this does not interfere with the previous code :O)
+        let mut attack_success = true;
+        let mut knockback_success = true;
+        let is_modern_combat = GLOBAL_COMBAT_PROFILE.combat_type() == CombatType::Modern;
 
-        if attack_success {
+        if is_modern_combat {
             if !victim
                 .damage(damage as f32, DamageType::PLAYER_ATTACK)
                 .await
@@ -505,7 +504,33 @@ impl Player {
                     .await;
                 return;
             }
+        } else if let Some(living) = victim.get_living_entity() {
+            match classic_attack_entity_success(&victim.clone(), damage).await {
+                ClassicEntityAttackSuccessType::SmallerHrt => {
+                    living
+                        .damage(damage as f32, DamageType::PLAYER_ATTACK)
+                        .await;
+                    living.last_damage_taken.store(damage as f32);
+                    living.hurt_resistant_time.store(10, Release);
+                    living.hurt_time.store(10, Release);
+                }
+                ClassicEntityAttackSuccessType::GreaterHrt => {
+                    let last_damage_taken = living.last_damage_taken.load();
+                    damage = f64::from(damage as f32 - last_damage_taken);
+                    living
+                        .damage(damage as f32, DamageType::PLAYER_ATTACK)
+                        .await;
+                    living.last_damage_taken.store(damage as f32);
+                    knockback_success = false;
+                }
+                ClassicEntityAttackSuccessType::False => {
+                    attack_success = false;
+                    knockback_success = false;
+                }
+            }
+        }
 
+        if attack_success {
             if victim.get_living_entity().is_some() {
                 let mut knockback_strength = 1.0;
                 player_attack_sound(&pos, &world, attack_type).await;
@@ -517,7 +542,7 @@ impl Player {
                     }
                     _ => {}
                 }
-                if config.knockback {
+                if config.knockback && knockback_success {
                     combat::handle_knockback(
                         attacker_entity,
                         &world,

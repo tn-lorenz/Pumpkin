@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering::{Relaxed, Acquire, Release}};
-use std::{collections::HashMap, sync::atomic::AtomicI32};
 use super::EntityBase;
 use super::{Entity, EntityId, NBTStorage, effect::Effect};
 use crate::block::loot::{LootContextParameters, LootTableExt};
@@ -23,6 +20,12 @@ use pumpkin_protocol::{
 };
 use pumpkin_util::math::vector3::Vector3;
 use pumpkin_world::item::ItemStack;
+use std::sync::Arc;
+use std::sync::atomic::{
+    AtomicBool, AtomicU8,
+    Ordering::{Acquire, Relaxed, Release},
+};
+use std::{collections::HashMap, sync::atomic::AtomicI32};
 use tokio::sync::Mutex;
 
 /// Represents a living entity within the game world.
@@ -53,7 +56,7 @@ pub struct LivingEntity {
 impl LivingEntity {
     pub fn new(entity: Entity) -> Self {
         let pos = entity.pos.load();
-        let self_instance = Self {
+        Self {
             entity,
             last_pos: AtomicCell::new(pos),
             time_until_regen: AtomicI32::new(0),
@@ -67,15 +70,7 @@ impl LivingEntity {
             hurt_resistant_time: AtomicU8::new(0),
             max_hurt_resistant_time: AtomicU8::new(20),
             velocity_changed: AtomicBool::new(false),
-        };
-
-        log::info!(
-            "LivingEntity init: hurt_time={}, hurt_resistant_time={}, max_hurt_resistant_time={}",
-            self_instance.hurt_time.load(Relaxed),
-            self_instance.hurt_resistant_time.load(Relaxed),
-            self_instance.max_hurt_resistant_time.load(Relaxed),
-        );
-        self_instance
+        }
     }
 
     pub async fn send_equipment_changes(&self, equipment: &[(EquipmentSlot, ItemStack)]) {
@@ -345,13 +340,14 @@ impl EntityBase for LivingEntity {
         }
         // Tick the relevant values for classic combat if it is enabled
         if GLOBAL_COMBAT_PROFILE.clone().combat_type() != CombatType::Modern {
-            let ht = self.hurt_time.load(Acquire);
-            if ht > 0 {
-                self.hurt_time.store(ht - 1, Release);
+            let hurt_time = self.hurt_time.load(Acquire);
+            if hurt_time > 0 {
+                self.hurt_time.store(hurt_time - 1, Release);
             }
-            let hrt = self.hurt_resistant_time.load(Acquire);
-            if hrt > 0 {
-                self.hurt_resistant_time.store(hrt - 1, Release);
+            let hurt_resistant_time = self.hurt_resistant_time.load(Acquire);
+            if hurt_resistant_time > 0 {
+                self.hurt_resistant_time
+                    .store(hurt_resistant_time - 1, Release);
             }
         }
 
