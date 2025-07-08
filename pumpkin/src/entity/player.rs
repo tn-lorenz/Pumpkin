@@ -433,6 +433,7 @@ impl Player {
         //self.world().level.list_cached();
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn attack(&self, victim: Arc<dyn EntityBase>) {
         let world = self.world().await;
         let victim_entity = victim.get_entity();
