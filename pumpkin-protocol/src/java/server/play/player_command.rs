@@ -1,5 +1,5 @@
 use std::io::Read;
-
+use serde::Serialize;
 use pumpkin_data::packet::serverbound::PLAY_PLAYER_COMMAND;
 use pumpkin_macros::packet;
 
@@ -9,6 +9,7 @@ use crate::{
     ser::{NetworkReadExt, ReadingError},
 };
 
+#[derive(Serialize)]
 #[packet(PLAY_PLAYER_COMMAND)]
 pub struct SPlayerCommand {
     pub entity_id: VarInt,

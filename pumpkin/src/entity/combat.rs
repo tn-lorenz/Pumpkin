@@ -1,4 +1,4 @@
-use crate::entity::{EntityBase, Flag};
+use crate::entity::EntityBase;
 use crate::{
     entity::{Entity, player::Player},
     world::World,
@@ -42,7 +42,7 @@ impl AttackType {
             attack_cooldown_progress > 0.9
         } else {
             // TODO: probably this is done differently, depending on current velocity in classic
-            true
+            false
         };
 
         if sprinting && is_strong {
@@ -76,12 +76,8 @@ pub async fn handle_knockback(attacker: &Entity, world: &World, victim: &Entity,
 
     let packet = CEntityVelocity::new(entity_id, victim_velocity);
     let velocity = attacker.velocity.load();
-    attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
 
-    if combat_profile.combat_type() != CombatType::Modern {
-        attacker.set_flag(Flag::Sprinting, false).await;
-        attacker.sprinting.store(false, Release);
-    }
+    attacker.velocity.store(velocity.multiply(0.6, 1.0, 0.6));
 
     victim.velocity.store(saved_velo);
     world.broadcast_packet_all(&packet).await;
@@ -250,7 +246,16 @@ impl CombatProfile for ClassicProfile {
             velocity.z,
         ));
 
-        target.knockback(strength * 0.5, knockback_x, knockback_z);
+        if let Some(attacker) = attacker.get_living_entity() {
+            let velo = attacker.entity.velocity.load();
+            let magnitude_3d = (square(velo.x) + square(velo.y) + square(velo.z)).sqrt();
+            let mut velocity_multiplier = magnitude_3d / 5.6;
+            velocity_multiplier = velocity_multiplier.clamp(0.1, 1.0);
+
+            target.knockback(strength * 0.5 * velocity_multiplier, knockback_x, knockback_z);
+        } else {
+            target.knockback(strength * 0.5, knockback_x, knockback_z);
+        }
     }
 
     /// Getting called on a target, when being attacked
