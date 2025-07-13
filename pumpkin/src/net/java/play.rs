@@ -1,4 +1,3 @@
-
 /* -- Std -- */
 use std::{
     num::NonZeroU8,
@@ -11,36 +10,17 @@ use rsa::{
     pkcs1v15::{Signature as RsaPkcs1v15Signature, VerifyingKey},
     signature::Verifier,
 };
-
-use pumpkin_util::PermissionLvl;
-use rsa::pkcs1v15::{Signature as RsaPkcs1v15Signature, VerifyingKey};
-use rsa::signature::Verifier;
-
 use sha1::Sha1;
-use std::num::NonZeroU8;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use uuid::Uuid;
 
 /* -- Pumpkin -- */
-use crate::block::pumpkin_block::BlockHitResult;
-use crate::block::registry::BlockActionResult;
-use crate::block::{self, BlockIsReplacing};
-use crate::command::CommandSender;
-use crate::entity::EntityBase;
-use crate::entity::player::{ChatMode, ChatSession, Hand, Player};
-use crate::entity::r#type::from_type;
-use crate::error::PumpkinError;
-use crate::net::PlayerConfig;
-use crate::net::java::JavaClientPlatform;
-use crate::plugin::player::player_chat::PlayerChatEvent;
-use crate::plugin::player::player_command_send::PlayerCommandSendEvent;
-use crate::plugin::player::player_interact_event::{InteractAction, PlayerInteractEvent};
-use crate::plugin::player::player_move::PlayerMoveEvent;
-use crate::server::{Server, seasonal_events};
-use crate::world::{World, chunker};
+use pumpkin_util::{
+    GameMode, PermissionLvl,
+    math::{polynomial_rolling_hash, position::BlockPos, vector3::Vector3, wrap_degrees},
+    text::{TextComponent, color::NamedColor},
+};
+
 use pumpkin_config::{BASIC_CONFIG, advanced_config};
 
 use pumpkin_data::{
@@ -72,21 +52,14 @@ use pumpkin_protocol::{
         server::play::{
             Action, ActionType, CommandBlockMode, FLAG_ON_GROUND, SChangeGameMode, SChatCommand,
             SChatMessage, SChunkBatch, SClientCommand, SClientInformationPlay, SCloseContainer,
-            SCommandSuggestion, SConfirmTeleport, SInteract, SKeepAlive, SCookieResponse as SPCookieResponse,
-            SPickItemFromBlock, SPlayPingRequest, SPlayerAbilities, SPlayerAction, SPlayerCommand,
-            SPlayerInput, SPlayerPosition, SPlayerPositionRotation, SPlayerRotation,
-            SPlayerSession, SSetCommandBlock, SSetCreativeSlot, SSetHeldItem, SSetPlayerGround,
-            SSwingArm, SUpdateSign, SUseItem, SUseItemOn, Status,
+            SCommandSuggestion, SConfirmTeleport, SCookieResponse as SPCookieResponse, SInteract,
+            SKeepAlive, SPickItemFromBlock, SPlayPingRequest, SPlayerAbilities, SPlayerAction,
+            SPlayerCommand, SPlayerInput, SPlayerPosition, SPlayerPositionRotation,
+            SPlayerRotation, SPlayerSession, SSetCommandBlock, SSetCreativeSlot, SSetHeldItem,
+            SSetPlayerGround, SSwingArm, SUpdateSign, SUseItem, SUseItemOn, Status,
         },
     },
 };
-
-use pumpkin_util::{
-    GameMode, PermissionLvl,
-    math::{polynomial_rolling_hash, position::BlockPos, vector3::Vector3, wrap_degrees},
-    text::{TextComponent, color::NamedColor},
-};
-
 
 use pumpkin_world::{
     block::entities::{command_block::CommandBlockEntity, sign::SignBlockEntity},
@@ -1488,7 +1461,7 @@ impl JavaClientPlatform {
         let held_item_empty = held_item.lock().await.is_empty();
         let off_hand_item_empty = off_hand_item.lock().await.is_empty();
         let item = if use_item_on.hand == VarInt::from(0) {
-            held_item
+            held_item.clone()
         } else {
             off_hand_item
         };

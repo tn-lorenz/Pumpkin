@@ -105,7 +105,10 @@ use crate::{
         },
     },
     net::{ClientPlatform, GameProfile, PlayerConfig},
-    plugin::player::{player_bed_leave, player_change_world, player_death, player_gamemode_change, player_teleport},
+    plugin::player::{
+        player_bed_leave, player_change_world, player_death, player_gamemode_change,
+        player_teleport,
+    },
     server::Server,
     world::World,
 };

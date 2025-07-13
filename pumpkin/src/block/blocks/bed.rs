@@ -427,7 +427,7 @@ impl PumpkinBlock for BedBlock {
             if !event.cancelled {
                 player.sleep(bed_head_pos).await;
                 Self::set_occupied(true, args.world, args.block, args.position, state_id).await;
-                return BlockActionResult::Success
+                return BlockActionResult::Success;
             }
         }
         BlockActionResult::Continue
