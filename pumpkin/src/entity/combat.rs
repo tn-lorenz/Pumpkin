@@ -42,7 +42,7 @@ impl AttackType {
             attack_cooldown_progress > 0.9
         } else {
             // TODO: probably this is done differently, depending on current velocity in classic
-            false
+            true
         };
 
         if sprinting && is_strong {
@@ -249,10 +249,10 @@ impl CombatProfile for ClassicProfile {
         if let Some(attacker) = attacker.get_living_entity() {
             let velo = attacker.entity.velocity.load();
             let magnitude_3d = (square(velo.x) + square(velo.y) + square(velo.z)).sqrt();
-            let mut velocity_multiplier = magnitude_3d / 5.6;
-            velocity_multiplier = velocity_multiplier.clamp(0.1, 1.0);
+            //let mut velocity_multiplier = magnitude_3d / 5.6;
+            //velocity_multiplier = velocity_multiplier.clamp(0.1, 1.0);
 
-            target.knockback(strength * 0.5 * velocity_multiplier, knockback_x, knockback_z);
+            target.knockback((strength + magnitude_3d / 5.6) * 0.5, knockback_x, knockback_z);
         } else {
             target.knockback(strength * 0.5, knockback_x, knockback_z);
         }

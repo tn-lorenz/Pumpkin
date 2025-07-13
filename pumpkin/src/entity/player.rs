@@ -38,7 +38,7 @@ use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
 use pumpkin_protocol::IdOr;
 use pumpkin_protocol::codec::var_int::VarInt;
-use pumpkin_protocol::java::client::play::{Animation, CAcknowledgeBlockChange, CActionBar, CChangeDifficulty, CChunkBatchEnd, CChunkBatchStart, CChunkData, CCloseContainer, CCombatDeath, CDisguisedChatMessage, CEntityAnimation, CEntityPositionSync, CEntityVelocity, CGameEvent, CKeepAlive, COpenScreen, CParticle, CPlayerAbilities, CPlayerInfoUpdate, CPlayerPosition, CPlayerSpawnPosition, CRespawn, CSetContainerContent, CSetContainerProperty, CSetContainerSlot, CSetCursorItem, CSetExperience, CSetHealth, CSetPlayerInventory, CSetSelectedSlot, CSoundEffect, CStopSound, CSubtitle, CSystemChatMessage, CTitleText, CUnloadChunk, CUpdateMobEffect, CUpdateTime, GameEvent, MetaDataType, Metadata, PlayerAction, PlayerInfoFlags, PreviousMessage};
+use pumpkin_protocol::java::client::play::{Animation, CAcknowledgeBlockChange, CActionBar, CChangeDifficulty, CChunkBatchEnd, CChunkBatchStart, CChunkData, CCloseContainer, CCombatDeath, CDisguisedChatMessage, CEntityAnimation, CEntityPositionSync, CGameEvent, CKeepAlive, COpenScreen, CParticle, CPlayerAbilities, CPlayerInfoUpdate, CPlayerPosition, CPlayerSpawnPosition, CRespawn, CSetContainerContent, CSetContainerProperty, CSetContainerSlot, CSetCursorItem, CSetExperience, CSetHealth, CSetPlayerInventory, CSetSelectedSlot, CSoundEffect, CStopSound, CSubtitle, CSystemChatMessage, CTitleText, CUnloadChunk, CUpdateMobEffect, CUpdateTime, GameEvent, MetaDataType, Metadata, PlayerAction, PlayerInfoFlags, PreviousMessage};
 use pumpkin_protocol::java::server::play::SClickSlot;
 use pumpkin_registry::VanillaDimensionType;
 use pumpkin_util::GameMode;
@@ -78,7 +78,7 @@ use super::effect::Effect;
 use super::hunger::HungerManager;
 use super::item::ItemEntity;
 use super::living::LivingEntity;
-use super::{Entity, EntityBase, EntityId, Flag, NBTStorage};
+use super::{Entity, EntityBase, EntityId, NBTStorage};
 
 const MAX_CACHED_SIGNATURES: u8 = 128; // Vanilla: 128
 const MAX_PREVIOUS_MESSAGES: u8 = 20; // Vanilla: 20
@@ -542,21 +542,6 @@ impl Player {
                         knockback_strength,
                     )
                     .await;
-                    /*if !is_modern_combat  {
-                         if let Some(attacker) = self.get_living_entity() {
-                            let previous_velo = attacker.entity.velocity.load();
-                            attacker.entity.velocity.store(previous_velo.multiply(0.9, 1.0, 0.9));
-                            let velo_after_hit = attacker.entity.velocity.load();
-
-                            let entity_id = VarInt(attacker.entity_id());
-                            let velocity_packet = CEntityVelocity::new(entity_id, velo_after_hit);
-
-                            world.broadcast_packet_all(&velocity_packet).await;
-
-                            attacker.entity.set_flag(Flag::Sprinting, false).await;
-                            attacker.entity.sprinting.store(false, Release);
-                        }
-                    }*/
                 }
             }
             if config.swing {}
