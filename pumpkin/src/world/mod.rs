@@ -18,12 +18,13 @@ use crate::{
     command::client_suggestions,
     entity::{Entity, EntityBase, EntityId, player::Player, r#type::from_type},
     error::PumpkinError,
+    net::ClientPlatform,
     plugin::{
         block::block_break::BlockBreakEvent,
         player::{player_join::PlayerJoinEvent, player_leave::PlayerLeaveEvent},
         world::{chunk_load::ChunkLoad, chunk_save::ChunkSave, chunk_send::ChunkSend},
     },
-    server::Server,
+    server::{CURRENT_BEDROCK_MC_VERSION, Server},
 };
 use crate::{
     block::{BlockEvent, loot::LootContextParameters},
@@ -48,19 +49,32 @@ use pumpkin_data::{
     sound::{Sound, SoundCategory},
     world::{RAW, WorldEvent},
 };
-use pumpkin_inventory::equipment_slot::EquipmentSlot;
+use pumpkin_inventory::{equipment_slot::EquipmentSlot, screen_handler::InventoryPlayer};
 use pumpkin_macros::send_cancellable;
 use pumpkin_nbt::{compound::NbtCompound, to_bytes_unnamed};
-use pumpkin_protocol::ser::serializer::Serializer;
 use pumpkin_protocol::{
     ClientPacket, IdOr, SoundEvent,
-    java::client::play::{
-        CBlockEntityData, CEntityStatus, CGameEvent, CLogin, CMultiBlockUpdate, CPlayerChatMessage,
-        CPlayerInfoUpdate, CRemoveEntities, CRemovePlayerInfo, CSoundEffect, CSpawnEntity,
-        FilterType, GameEvent, InitChat, PlayerAction, PlayerInfoFlags,
+    bedrock::{
+        RakReliability,
+        client::{
+            gamerules_changed::GameRules,
+            start_game::{Experiments, GAME_PUBLISH_SETTING_PUBLIC, LevelSettings},
+        },
     },
-    java::server::play::SChatMessage,
+    codec::{
+        bedrock_block_pos::BedrockPos, var_long::VarLong, var_uint::VarUInt, var_ulong::VarULong,
+    },
+    java::{
+        client::play::{
+            CBlockEntityData, CEntityStatus, CGameEvent, CLogin, CMultiBlockUpdate,
+            CPlayerChatMessage, CPlayerInfoUpdate, CRemoveEntities, CRemovePlayerInfo,
+            CSetSelectedSlot, CSoundEffect, CSpawnEntity, FilterType, GameEvent, InitChat,
+            PlayerAction, PlayerInfoFlags,
+        },
+        server::play::SChatMessage,
+    },
 };
+use pumpkin_protocol::{bedrock::client::start_game::CStartGame, ser::serializer::Serializer};
 use pumpkin_protocol::{
     codec::item_stack_seralizer::ItemStackSerializer,
     java::client::play::{
@@ -84,7 +98,7 @@ use pumpkin_util::{
 };
 use pumpkin_world::{
     BlockStateId, GENERATION_SETTINGS, GeneratorSetting, biome, block::entities::BlockEntity,
-    chunk::io::Dirtiable, item::ItemStack,
+    chunk::io::Dirtiable, item::ItemStack, world::SimpleWorld,
 };
 use pumpkin_world::{chunk::ChunkData, world::BlockAccessor};
 use pumpkin_world::{chunk::TickPriority, level::Level};
@@ -190,7 +204,7 @@ impl World {
             players: Arc::new(RwLock::new(HashMap::new())),
             entities: Arc::new(RwLock::new(HashMap::new())),
             scoreboard: Mutex::new(Scoreboard::new()),
-            worldborder: Mutex::new(Worldborder::new(0.0, 0.0, 29_999_984.0, 0, 0, 0)),
+            worldborder: Mutex::new(Worldborder::new(0.0, 0.0, 30_000_000.0, 0, 0, 0)),
             level_time: Mutex::new(LevelTime::new()),
             dimension_type,
             weather: Mutex::new(Weather::new()),
@@ -500,10 +514,10 @@ impl World {
     }
 
     pub async fn tick(self: &Arc<Self>, server: &Server) {
+        let start = tokio::time::Instant::now();
         self.flush_block_updates().await;
+
         // tick block entities
-        // TODO: fix dead lock
-        // self.level.tick_block_entities(self.clone()).await;
         self.flush_synced_block_events().await;
 
         // world ticks
@@ -530,10 +544,14 @@ impl World {
         drop(level_time);
         drop(weather);
 
-        self.tick_scheduled_block_ticks().await;
+        let chunk_start = tokio::time::Instant::now();
+        log::debug!("Ticking chunks");
+        self.tick_chunks().await;
+        let elapsed = chunk_start.elapsed();
 
         let players_to_tick: Vec<_> = self.players.read().await.values().cloned().collect();
 
+        log::debug!("Ticking players");
         // player ticks
         for player in players_to_tick {
             player.tick(server).await;
@@ -541,6 +559,7 @@ impl World {
 
         let entities_to_tick: Vec<_> = self.entities.read().await.values().cloned().collect();
 
+        log::debug!("Ticking entities");
         // Entity ticks
         for entity in entities_to_tick {
             entity.tick(entity.clone(), server).await;
@@ -559,6 +578,13 @@ impl World {
                 }
             }
         }
+
+        log::debug!(
+            "Ticking world took {:?}, loaded chunks: {}, chunk tick took {:?}",
+            start.elapsed(),
+            self.level.loaded_chunk_count(),
+            elapsed
+        );
     }
 
     pub async fn flush_block_updates(&self) {
@@ -591,33 +617,46 @@ impl World {
         }
     }
 
-    pub async fn tick_scheduled_block_ticks(self: &Arc<Self>) {
-        let blocks_to_tick = self.level.get_and_tick_block_ticks().await;
-        let fluids_to_tick = self.level.get_and_tick_fluid_ticks().await;
-
-        while let Some(scheduled_tick) = { blocks_to_tick.lock().await.pop_front() } {
+    pub async fn tick_chunks(self: &Arc<Self>) {
+        let tick_data = self.level.get_tick_data().await;
+        for scheduled_tick in tick_data.block_ticks {
             let block = self.get_block(&scheduled_tick.block_pos).await;
-            if scheduled_tick.target_block_id != block.id {
-                continue;
-            }
             if let Some(pumpkin_block) = self.block_registry.get_pumpkin_block(block) {
                 pumpkin_block
                     .on_scheduled_tick(OnScheduledTickArgs {
                         world: self,
                         block,
-                        location: &scheduled_tick.block_pos,
+                        position: &scheduled_tick.block_pos,
                     })
                     .await;
             }
         }
-
-        for scheduled_tick in fluids_to_tick {
+        for scheduled_tick in tick_data.fluid_ticks {
             let fluid = self.get_fluid(&scheduled_tick.block_pos).await;
-            if let Some(pumpkin_fluid) = self.block_registry.get_pumpkin_fluid(&fluid) {
+            if let Some(pumpkin_fluid) = self.block_registry.get_pumpkin_fluid(fluid) {
                 pumpkin_fluid
-                    .on_scheduled_tick(self, &fluid, &scheduled_tick.block_pos)
+                    .on_scheduled_tick(self, fluid, &scheduled_tick.block_pos)
                     .await;
             }
+        }
+
+        /* TODO: Fix this deadlock
+        for scheduled_tick in tick_data.random_ticks {
+            let block = self.get_block(&scheduled_tick.block_pos).await;
+            if let Some(pumpkin_block) = self.block_registry.get_pumpkin_block(block) {
+                pumpkin_block
+                    .random_tick(RandomTickArgs {
+                        world: self,
+                        block,
+                        position: &scheduled_tick.block_pos,
+                    })
+                    .await;
+            }
+        } */
+
+        for block_entity in tick_data.block_entities {
+            let world: Arc<dyn SimpleWorld> = self.clone();
+            block_entity.tick(&world).await;
         }
     }
 
@@ -640,7 +679,7 @@ impl World {
             ..=i32::from(generation_settings.shape.height))
             .rev()
         {
-            let pos = BlockPos(Vector3::new(position.x, y, position.z));
+            let pos = BlockPos(Vector3::new(position.x, y, position.y));
             let block = self.get_block_state(&pos).await;
             if block.is_air() {
                 continue;
@@ -650,8 +689,130 @@ impl World {
         i32::from(generation_settings.shape.height)
     }
 
+    #[allow(clippy::too_many_lines)]
+    pub async fn spawn_bedrock_player(
+        &self,
+        base_config: &BasicConfiguration,
+        player: Arc<Player>,
+        server: &Server,
+    ) {
+        let level_info = server.level_info.read().await;
+        let weather = self.weather.lock().await;
+        let level_settings = LevelSettings {
+            seed: self.level.seed.0,
+            spawn_biome_type: 0,
+            custom_biome_name: String::with_capacity(0),
+            dimension: VarInt(0),
+            generator_type: VarInt(1),
+            world_gamemode: VarInt(server.defaultgamemode.lock().await.gamemode as i32),
+            hardcore: base_config.hardcore,
+            difficulty: VarInt(level_info.difficulty as i32),
+            spawn_position: BedrockPos(BlockPos(Vector3::new(
+                level_info.spawn_x,
+                level_info.spawn_y,
+                level_info.spawn_z,
+            ))),
+            has_achievements_disabled: false,
+            editor_world_type: VarInt(0),
+            is_created_in_editor: false,
+            is_exported_from_editor: false,
+            day_cycle_stop_time: VarInt(-1),
+            education_edition_offer: VarInt(0),
+            has_education_features_enabled: false,
+            education_product_id: String::with_capacity(0),
+            rain_level: weather.rain_level,
+            lightning_level: weather.thunder_level,
+            has_confirmed_platform_locked_content: false,
+            was_multiplayer_intended: true,
+            was_lan_broadcasting_intended: true,
+            xbox_live_broadcast_setting: VarInt(GAME_PUBLISH_SETTING_PUBLIC),
+            platform_broadcast_setting: VarInt(GAME_PUBLISH_SETTING_PUBLIC),
+            commands_enabled: level_info.allow_commands,
+            is_texture_packs_required: false,
+            rule_data: GameRules {
+                list_size: VarUInt(0),
+            },
+            experiments: Experiments {
+                names_size: 0,
+                experiments_ever_toggled: false,
+            },
+            bonus_chest: false,
+            has_start_with_map_enabled: false,
+            // TODO Bedrock permission level are different
+            permission_level: VarInt(2),
+            server_chunk_tick_range: base_config.simulation_distance.get().into(),
+            has_locked_behavior_pack: false,
+            has_locked_resource_pack: false,
+            is_from_locked_world_template: false,
+            is_using_msa_gamertags_only: false,
+            is_from_world_template: false,
+            is_world_template_option_locked: false,
+            is_only_spawning_v1_villagers: false,
+            is_disabling_personas: false,
+            is_disabling_custom_skins: false,
+            emote_chat_muted: false,
+            game_version: CURRENT_BEDROCK_MC_VERSION.into(),
+            limited_world_width: 0,
+            limited_world_height: 0,
+            is_nether_type: base_config.allow_nether,
+            edu_shared_uri_button_name: String::with_capacity(0),
+            edu_shared_uri_link_uri: String::with_capacity(0),
+            override_force_experimental_gameplay_has_value: false,
+            chat_restriction_level: 0,
+            disable_player_interactions: false,
+            server_id: String::with_capacity(0),
+            world_id: String::with_capacity(0),
+            scenario_id: String::with_capacity(0),
+            owner_id: String::with_capacity(0),
+        };
+        if let ClientPlatform::Bedrock(client) = &player.client {
+            client
+                .send_game_packet(
+                    &CStartGame {
+                        entity_id: VarLong(i64::from(player.entity_id())),
+                        runtime_entity_id: VarULong(player.entity_id() as u64),
+                        player_gamemode: VarInt(player.gamemode.load() as i32),
+                        position: Vector3::new(0.0, 100.0, 0.0),
+                        yaw: 0.0,
+                        pitch: 0.0,
+                        level_settings,
+                        level_id: String::with_capacity(0),
+                        level_name: "level".to_string(),
+                        premium_world_template_id: String::with_capacity(0),
+                        is_trial: false,
+                        rewind_history_size: VarInt(40),
+                        server_authoritative_block_breaking: false,
+                        current_level_time: 0,
+                        enchantment_seed: VarInt(0),
+                        block_properties_size: VarUInt(0),
+                        // TODO Make this unique
+                        multiplayer_correlation_id: Uuid::default().to_string(),
+                        enable_itemstack_net_manager: false,
+                        // TODO Make this description better!
+                        // This gets send from the client to mojang server for telemetry
+                        server_version: "Pumpkin Rust Server".to_string(),
+
+                        compound_id: 10,
+                        compound_len: VarUInt(0),
+                        compound_end: 0,
+
+                        block_registry_checksum: 0,
+                        world_template_id: Uuid::default(),
+                        // TODO The client needs extra biome data for this
+                        enable_clientside_generation: false,
+                        blocknetwork_ids_are_hashed: false,
+                        server_auth_sounds: false,
+                    },
+                    RakReliability::Unreliable,
+                )
+                .await;
+        } else {
+            panic!();
+        }
+    }
+
     #[expect(clippy::too_many_lines)]
-    pub async fn spawn_player(
+    pub async fn spawn_java_player(
         &self,
         base_config: &BasicConfiguration,
         player: Arc<Player>,
@@ -904,6 +1065,13 @@ impl World {
                 .await;
         }
         player.send_client_information().await;
+
+        // Sync selected slot
+        player
+            .enqueue_set_held_item_packet(&CSetSelectedSlot::new(
+                player.get_inventory().get_selected_slot() as i8,
+            ))
+            .await;
 
         // Start waiting for level chunks. Sets the "Loading Terrain" screen
         log::debug!("Sending waiting chunks to {}", player.gameprofile.name);
@@ -1159,11 +1327,7 @@ impl World {
         chunks: Vec<Vector2<i32>>,
         center_chunk: Vector2<i32>,
     ) {
-        if player
-            .client
-            .closed
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
+        if player.client.closed() {
             log::info!("The connection has closed before world chunks were spawned");
             return;
         }
@@ -1174,7 +1338,7 @@ impl World {
         let mut chunks = chunks;
         chunks.sort_unstable_by_key(|pos| {
             let rel_x = pos.x - center_chunk.x;
-            let rel_z = pos.z - center_chunk.z;
+            let rel_z = pos.y - center_chunk.y;
             rel_x * rel_x + rel_z * rel_z
         });
 
@@ -1242,7 +1406,7 @@ impl World {
                     (world, chunk)
                 };
 
-                if !player.client.closed.load(Ordering::Relaxed) {
+                if !player.client.closed() {
                     send_cancellable! {{
                         ChunkSend {
                             world,
@@ -1630,7 +1794,11 @@ impl World {
     ) -> BlockStateId {
         let (chunk_coordinate, relative) = position.chunk_and_chunk_relative_position();
         let chunk = self.level.get_chunk(chunk_coordinate).await;
-        let mut chunk = chunk.write().await;
+        let Ok(mut chunk) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), chunk.write()).await
+        else {
+            panic!("Timed out while waiting to acquire chunk write lock")
+        };
         let Some(replaced_block_state_id) = chunk.section.get_block_absolute_y(
             relative.x as usize,
             relative.y,
@@ -1657,8 +1825,8 @@ impl World {
             .insert(*position, block_state_id);
         drop(chunk);
 
-        let old_block = Block::from_state_id(replaced_block_state_id).unwrap();
-        let new_block = Block::from_state_id(block_state_id).unwrap();
+        let old_block = Block::from_state_id(replaced_block_state_id);
+        let new_block = Block::from_state_id(block_state_id);
 
         let block_moved = flags.contains(BlockFlags::MOVED);
 
@@ -1693,7 +1861,7 @@ impl World {
             self.block_registry
                 .on_placed_fluid(
                     self,
-                    &new_fluid,
+                    new_fluid,
                     block_state_id,
                     position,
                     replaced_block_state_id,
@@ -1721,7 +1889,7 @@ impl World {
                     .prepare(
                         self,
                         position,
-                        Block::from_state_id(replaced_block_state_id).unwrap(),
+                        Block::from_state_id(replaced_block_state_id),
                         replaced_block_state_id,
                         new_flags,
                     )
@@ -1730,7 +1898,7 @@ impl World {
                     .update_neighbors(
                         self,
                         position,
-                        Block::from_state_id(block_state_id).unwrap(),
+                        Block::from_state_id(block_state_id),
                         new_flags,
                     )
                     .await;
@@ -1738,7 +1906,7 @@ impl World {
                     .prepare(
                         self,
                         position,
-                        Block::from_state_id(block_state_id).unwrap(),
+                        Block::from_state_id(block_state_id),
                         block_state_id,
                         new_flags,
                     )
@@ -1756,21 +1924,30 @@ impl World {
         delay: u16,
         priority: TickPriority,
     ) {
-        self.level
-            .schedule_block_tick(block.id, block_pos, delay, priority)
+        let chunk = self
+            .level
+            .get_chunk(block_pos.chunk_and_chunk_relative_position().0)
             .await;
+        let mut chunk = chunk.write().await;
+        chunk.schedule_block_tick(block.id, block_pos, delay, priority);
     }
 
     pub async fn schedule_fluid_tick(&self, block_id: u16, block_pos: BlockPos, delay: u16) {
-        self.level
-            .schedule_fluid_tick(block_id, &block_pos, delay)
+        let chunk = self
+            .level
+            .get_chunk(block_pos.chunk_and_chunk_relative_position().0)
             .await;
+        let mut chunk = chunk.write().await;
+        chunk.schedule_fluid_tick(block_id, &block_pos, delay);
     }
 
     pub async fn is_block_tick_scheduled(&self, block_pos: &BlockPos, block: &Block) -> bool {
-        self.level
-            .is_block_tick_scheduled(block_pos, block.id)
-            .await
+        let chunk = self
+            .level
+            .get_chunk(block_pos.chunk_and_chunk_relative_position().0)
+            .await;
+        let chunk = chunk.read().await;
+        chunk.is_block_tick_scheduled(block_pos, block.id)
     }
 
     pub async fn break_block(
@@ -1810,7 +1987,7 @@ impl World {
 
             let broken_state_id = self.set_block_state(position, new_state_id, flags).await;
 
-            if Block::from_state_id(broken_state_id) != Some(&Block::FIRE) {
+            if Block::from_state_id(broken_state_id) != &Block::FIRE {
                 let particles_packet = CWorldEvent::new(
                     WorldEvent::BlockBroken as i32,
                     *position,
@@ -1828,7 +2005,7 @@ impl World {
 
             if !flags.contains(BlockFlags::SKIP_DROPS) {
                 let params = LootContextParameters {
-                    block_state: get_state_by_state_id(broken_state_id),
+                    block_state: Some(get_state_by_state_id(broken_state_id)),
                     ..Default::default()
                 };
                 block::drop_loot(self, broken_block, position, true, params).await;
@@ -1853,20 +2030,32 @@ impl World {
         self.broadcast_packet_all(&CWorldEvent::new(world_event as i32, position, data, false))
             .await;
     }
-
+    #[must_use]
+    pub fn is_valid(dest: Vector3<f64>) -> bool {
+        Self::is_valid_horizontally(dest) && Self::is_valid_vertically(dest.y)
+    }
+    #[must_use]
+    pub fn is_valid_horizontally(dest: Vector3<f64>) -> bool {
+        (-30_000_000.0..=30_000_000.0).contains(&dest.x)
+            && (-30_000_000.0..=30_000_000.0).contains(&dest.z)
+    }
+    #[must_use]
+    pub fn is_valid_vertically(y: f64) -> bool {
+        (-20_000_000.0..=20_000_000.0).contains(&y)
+    }
     /// Gets a `Block` from the block registry. Returns `Block::AIR` if the block was not found.
     pub async fn get_block(&self, position: &BlockPos) -> &'static pumpkin_data::Block {
         let id = self.get_block_state_id(position).await;
-        get_block_by_state_id(id).unwrap_or(&Block::AIR)
+        get_block_by_state_id(id)
     }
 
-    pub async fn get_fluid(&self, position: &BlockPos) -> pumpkin_data::fluid::Fluid {
+    pub async fn get_fluid(&self, position: &BlockPos) -> &'static pumpkin_data::fluid::Fluid {
         let id = self.get_block_state_id(position).await;
-        let fluid = Fluid::from_state_id(id).ok_or(Fluid::EMPTY);
+        let fluid = Fluid::from_state_id(id).ok_or(&Fluid::EMPTY);
         if let Ok(fluid) = fluid {
             return fluid;
         }
-        let block = get_block_by_state_id(id).unwrap_or(&Block::AIR);
+        let block = get_block_by_state_id(id);
         block
             .properties(id)
             .and_then(|props| {
@@ -1876,13 +2065,13 @@ impl World {
                     .find(|p| p.0 == "waterlogged")
                     .map(|(_, value)| {
                         if value == true.to_string() {
-                            Fluid::FLOWING_WATER
+                            &Fluid::FLOWING_WATER
                         } else {
-                            Fluid::EMPTY
+                            &Fluid::EMPTY
                         }
                     })
             })
-            .unwrap_or(Fluid::EMPTY)
+            .unwrap_or(&Fluid::EMPTY)
     }
 
     pub async fn get_block_state_id(&self, position: &BlockPos) -> BlockStateId {
@@ -1892,7 +2081,7 @@ impl World {
     /// Gets the `BlockState` from the block registry. Returns Air if the block state was not found.
     pub async fn get_block_state(&self, position: &BlockPos) -> &'static pumpkin_data::BlockState {
         let id = self.get_block_state_id(position).await;
-        get_state_by_state_id(id).unwrap_or(Block::AIR.default_state)
+        get_state_by_state_id(id)
     }
 
     /// Gets the Block + Block state from the Block Registry, Returns None if the Block state has not been found
@@ -1904,7 +2093,7 @@ impl World {
         &'static pumpkin_data::BlockState,
     ) {
         let id = self.get_block_state_id(position).await;
-        get_block_and_state_by_state_id(id).unwrap_or((&Block::AIR, Block::AIR.default_state))
+        get_block_and_state_by_state_id(id)
     }
 
     /// Updates neighboring blocks of a block
@@ -1930,7 +2119,7 @@ impl World {
                     .on_neighbor_update(OnNeighborUpdateArgs {
                         world: self,
                         block: neighbor_block,
-                        location: &neighbor_pos,
+                        position: &neighbor_pos,
                         source_block,
                         notify: false,
                     })
@@ -1938,10 +2127,10 @@ impl World {
             }
 
             if let Some(neighbor_pumpkin_fluid) =
-                self.block_registry.get_pumpkin_fluid(&neighbor_fluid)
+                self.block_registry.get_pumpkin_fluid(neighbor_fluid)
             {
                 neighbor_pumpkin_fluid
-                    .on_neighbor_update(self, &neighbor_fluid, &neighbor_pos, false)
+                    .on_neighbor_update(self, neighbor_fluid, &neighbor_pos, false)
                     .await;
             }
         }
@@ -1960,7 +2149,7 @@ impl World {
                 .on_neighbor_update(OnNeighborUpdateArgs {
                     world: self,
                     block: neighbor_block,
-                    location: neighbor_block_pos,
+                    position: neighbor_block_pos,
                     source_block,
                     notify: false,
                 })
@@ -2000,7 +2189,7 @@ impl World {
 
         if new_state_id != block_state.id {
             let flags = flags & !BlockFlags::SKIP_DROPS;
-            if get_state_by_state_id(new_state_id).is_some_and(pumpkin_data::BlockState::is_air) {
+            if get_state_by_state_id(new_state_id).is_air() {
                 self.break_block(block_pos, None, flags).await;
             } else {
                 self.set_block_state(block_pos, new_state_id, flags).await;
@@ -2008,10 +2197,7 @@ impl World {
         }
     }
 
-    pub async fn get_block_entity(
-        &self,
-        block_pos: &BlockPos,
-    ) -> Option<(NbtCompound, Arc<dyn BlockEntity>)> {
+    pub async fn get_block_entity(&self, block_pos: &BlockPos) -> Option<Arc<dyn BlockEntity>> {
         let chunk = self
             .level
             .get_chunk(block_pos.chunk_and_chunk_relative_position().0)
@@ -2041,10 +2227,7 @@ impl World {
             .await;
         }
 
-        chunk.block_entities.insert(
-            block_pos,
-            (block_entity_nbt.unwrap_or_default(), block_entity),
-        );
+        chunk.block_entities.insert(block_pos, block_entity);
         chunk.mark_dirty(true);
     }
 
@@ -2303,6 +2486,6 @@ impl BlockAccessor for World {
         &'static pumpkin_data::BlockState,
     ) {
         let id = self.get_block_state(position).await.id;
-        get_block_and_state_by_state_id(id).unwrap_or((&Block::AIR, Block::AIR.default_state))
+        get_block_and_state_by_state_id(id)
     }
 }

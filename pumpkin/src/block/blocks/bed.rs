@@ -1,28 +1,74 @@
+/* -- Std -- */
 use std::sync::Arc;
 
+/* -- External -- */
 use async_trait::async_trait;
-use pumpkin_data::Block;
-use pumpkin_data::block_properties::BedPart;
-use pumpkin_data::block_properties::BlockProperties;
-use pumpkin_data::entity::EntityType;
-use pumpkin_data::tag::{RegistryKey, get_tag_values};
-use pumpkin_registry::VanillaDimensionType;
-use pumpkin_util::GameMode;
-use pumpkin_util::math::position::BlockPos;
-use pumpkin_util::text::TextComponent;
-use pumpkin_world::BlockStateId;
-use pumpkin_world::block::entities::bed::BedBlockEntity;
-use pumpkin_world::world::BlockFlags;
 
-use crate::PLUGIN_MANAGER;
-use crate::block::pumpkin_block::{
-    BlockMetadata, BrokenArgs, CanPlaceAtArgs, NormalUseArgs, OnPlaceArgs, PlacedArgs, PumpkinBlock,
+/* -- Pumpkin -- */
+use pumpkin_data::{
+    Block,
+    block_properties::{BedPart, BlockProperties, WhiteBedLikeProperties},
+    entity::EntityType,
+    tag::{RegistryKey, get_tag_values},
 };
-use crate::entity::{Entity, EntityBase};
-use crate::plugin::player::player_bed_enter::{BedEnterResult, PlayerBedEnterEvent};
-use crate::world::World;
+use pumpkin_registry::VanillaDimensionType;
+use pumpkin_util::{GameMode, math::position::BlockPos, text::TextComponent};
+use pumpkin_world::{BlockStateId, block::entities::bed::BedBlockEntity, world::BlockFlags};
 
-type BedProperties = pumpkin_data::block_properties::WhiteBedLikeProperties;
+/* -- Crate -- */
+use crate::{
+    PLUGIN_MANAGER,
+    block::{
+        pumpkin_block::{
+            BlockMetadata, BrokenArgs, CanPlaceAtArgs, NormalUseArgs, OnPlaceArgs, PlacedArgs,
+            PumpkinBlock,
+        },
+        registry::BlockActionResult,
+    },
+    entity::{Entity, EntityBase},
+    plugin::player::player_bed_enter::{BedEnterResult, PlayerBedEnterEvent},
+    world::World,
+};
+
+type BedProperties = WhiteBedLikeProperties;
+
+const NO_SLEEP_IDS: &[u16] = &[
+    EntityType::BLAZE.id,
+    EntityType::BOGGED.id,
+    EntityType::SKELETON.id,
+    EntityType::STRAY.id,
+    EntityType::WITHER_SKELETON.id,
+    EntityType::BREEZE.id,
+    EntityType::CREAKING.id,
+    EntityType::CREEPER.id,
+    EntityType::DROWNED.id,
+    EntityType::ENDERMITE.id,
+    EntityType::EVOKER.id,
+    EntityType::GIANT.id,
+    EntityType::GUARDIAN.id,
+    EntityType::ELDER_GUARDIAN.id,
+    EntityType::ILLUSIONER.id,
+    EntityType::OCELOT.id,
+    EntityType::PIGLIN.id,
+    EntityType::PIGLIN_BRUTE.id,
+    EntityType::PILLAGER.id,
+    EntityType::PHANTOM.id,
+    EntityType::RAVAGER.id,
+    EntityType::SILVERFISH.id,
+    EntityType::SPIDER.id,
+    EntityType::CAVE_SPIDER.id,
+    EntityType::VEX.id,
+    EntityType::VINDICATOR.id,
+    EntityType::WARDEN.id,
+    EntityType::WITCH.id,
+    EntityType::WITHER.id,
+    EntityType::ZOGLIN.id,
+    EntityType::ZOMBIE.id,
+    EntityType::ZOMBIE_VILLAGER.id,
+    EntityType::HUSK.id,
+    EntityType::ENDERMAN.id,
+    EntityType::ZOMBIFIED_PIGLIN.id,
+];
 
 pub struct BedBlock;
 impl BlockMetadata for BedBlock {
@@ -37,21 +83,90 @@ impl BlockMetadata for BedBlock {
 
 #[async_trait]
 impl PumpkinBlock for BedBlock {
+    async fn can_place_at(&self, args: CanPlaceAtArgs<'_>) -> bool {
+        if let Some(player) = args.player {
+            let facing = player.living_entity.entity.get_horizontal_facing();
+            return args
+                .block_accessor
+                .get_block_state(args.position)
+                .await
+                .replaceable()
+                && args
+                    .block_accessor
+                    .get_block_state(&args.position.offset(facing.to_offset()))
+                    .await
+                    .replaceable();
+        }
+        false
+    }
+
+    async fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
+        let mut bed_props = BedProperties::default(args.block);
+
+        bed_props.facing = args.player.living_entity.entity.get_horizontal_facing();
+        bed_props.part = BedPart::Foot;
+
+        bed_props.to_state_id(args.block)
+    }
+
+    async fn placed(&self, args: PlacedArgs<'_>) {
+        let bed_entity = BedBlockEntity::new(*args.position);
+        args.world.add_block_entity(Arc::new(bed_entity)).await;
+
+        let mut bed_head_props = BedProperties::default(args.block);
+        bed_head_props.facing = BedProperties::from_state_id(args.state_id, args.block).facing;
+        bed_head_props.part = BedPart::Head;
+
+        let bed_head_pos = args.position.offset(bed_head_props.facing.to_offset());
+        args.world
+            .set_block_state(
+                &bed_head_pos,
+                bed_head_props.to_state_id(args.block),
+                BlockFlags::NOTIFY_ALL | BlockFlags::SKIP_BLOCK_ADDED_CALLBACK,
+            )
+            .await;
+
+        let bed_head_entity = BedBlockEntity::new(bed_head_pos);
+        args.world.add_block_entity(Arc::new(bed_head_entity)).await;
+    }
+
+    async fn broken(&self, args: BrokenArgs<'_>) {
+        let bed_props = BedProperties::from_state_id(args.state.id, args.block);
+        let other_half_pos = if bed_props.part == BedPart::Head {
+            args.position
+                .offset(bed_props.facing.opposite().to_offset())
+        } else {
+            args.position.offset(bed_props.facing.to_offset())
+        };
+
+        args.world
+            .break_block(
+                &other_half_pos,
+                Some(args.player.clone()),
+                if args.player.gamemode.load() == GameMode::Creative {
+                    BlockFlags::SKIP_DROPS | BlockFlags::NOTIFY_NEIGHBORS
+                } else {
+                    BlockFlags::NOTIFY_NEIGHBORS
+                },
+            )
+            .await;
+    }
+
     #[allow(clippy::too_many_lines)]
-    async fn normal_use(&self, args: NormalUseArgs<'_>) {
-        let state_id = args.world.get_block_state_id(args.location).await;
+    async fn normal_use(&self, args: NormalUseArgs<'_>) -> BlockActionResult {
+        let state_id = args.world.get_block_state_id(args.position).await;
         let bed_props = BedProperties::from_state_id(state_id, args.block);
 
         let (bed_head_pos, bed_foot_pos) = if bed_props.part == BedPart::Head {
             (
-                *args.location,
-                args.location
+                *args.position,
+                args.position
                     .offset(bed_props.facing.opposite().to_offset()),
             )
         } else {
             (
-                args.location.offset(bed_props.facing.to_offset()),
-                *args.location,
+                args.position.offset(bed_props.facing.to_offset()),
+                *args.position,
             )
         };
 
@@ -68,7 +183,7 @@ impl PumpkinBlock for BedBlock {
                 .explode(args.server, bed_head_pos.to_centered_f64(), 5.0)
                 .await;
 
-            return;
+            return BlockActionResult::Success;
         }
 
         // Make sure the bed is not obstructed
@@ -83,6 +198,13 @@ impl PumpkinBlock for BedBlock {
                 .await
                 .is_solid()
         {
+            args.player
+                .send_system_message_raw(
+                    &TextComponent::translate("block.minecraft.bed.obstructed", []),
+                    true,
+                )
+                .await;
+
             if let Some(player) = args
                 .player
                 .world()
@@ -105,9 +227,9 @@ impl PumpkinBlock for BedBlock {
                             true,
                         )
                         .await;
+                    return BlockActionResult::Success;
                 }
             }
-            return;
         }
 
         // Make sure the bed is not occupied
@@ -127,6 +249,13 @@ impl PumpkinBlock for BedBlock {
                     BedEnterResult::NotPossibleHere,
                 );
 
+                args.player
+                    .send_system_message_raw(
+                        &TextComponent::translate("block.minecraft.bed.occupied", []),
+                        true,
+                    )
+                    .await;
+
                 event = PLUGIN_MANAGER.read().await.fire(event).await;
 
                 if !event.cancelled {
@@ -136,9 +265,9 @@ impl PumpkinBlock for BedBlock {
                             true,
                         )
                         .await;
+                    return BlockActionResult::Success;
                 }
             }
-            return;
         }
 
         // Make sure player is close enough
@@ -151,6 +280,13 @@ impl PumpkinBlock for BedBlock {
                 .position()
                 .is_within_bounds(bed_foot_pos.to_f64(), 3.0, 3.0, 3.0)
         {
+            args.player
+                .send_system_message_raw(
+                    &TextComponent::translate("block.minecraft.bed.too_far_away", []),
+                    true,
+                )
+                .await;
+
             if let Some(player) = args
                 .player
                 .world()
@@ -173,9 +309,9 @@ impl PumpkinBlock for BedBlock {
                             true,
                         )
                         .await;
+                    return BlockActionResult::Success;
                 }
             }
-            return;
         }
 
         // Set respawn point
@@ -195,6 +331,12 @@ impl PumpkinBlock for BedBlock {
 
         // Make sure the time and weather allows sleep
         if !can_sleep(args.world).await {
+            args.player
+                .send_system_message_raw(
+                    &TextComponent::translate("block.minecraft.bed.no_sleep", []),
+                    true,
+                )
+                .await;
             if let Some(player) = args
                 .player
                 .world()
@@ -217,9 +359,9 @@ impl PumpkinBlock for BedBlock {
                             true,
                         )
                         .await;
+                    return BlockActionResult::Success;
                 }
             }
-            return;
         }
 
         // Make sure there are no monsters nearby
@@ -232,6 +374,13 @@ impl PumpkinBlock for BedBlock {
             if pos.is_within_bounds(bed_head_pos.to_f64(), 8.0, 5.0, 8.0)
                 || pos.is_within_bounds(bed_foot_pos.to_f64(), 8.0, 5.0, 8.0)
             {
+                args.player
+                    .send_system_message_raw(
+                        &TextComponent::translate("block.minecraft.bed.not_safe", []),
+                        true,
+                    )
+                    .await;
+
                 if let Some(player) = args
                     .player
                     .world()
@@ -256,9 +405,12 @@ impl PumpkinBlock for BedBlock {
                             .await;
                     }
                 }
-                return;
+                return BlockActionResult::Continue;
             }
         }
+
+        args.player.sleep(bed_head_pos).await;
+        Self::set_occupied(true, args.world, args.block, args.position, state_id).await;
 
         if let Some(player) = args
             .player
@@ -274,73 +426,11 @@ impl PumpkinBlock for BedBlock {
 
             if !event.cancelled {
                 player.sleep(bed_head_pos).await;
-                Self::set_occupied(true, args.world, args.block, args.location, state_id).await;
+                Self::set_occupied(true, args.world, args.block, args.position, state_id).await;
+                return BlockActionResult::Success
             }
         }
-    }
-
-    async fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
-        let mut bed_props = BedProperties::default(args.block);
-
-        bed_props.facing = args.player.living_entity.entity.get_horizontal_facing();
-        bed_props.part = BedPart::Foot;
-
-        bed_props.to_state_id(args.block)
-    }
-
-    async fn can_place_at(&self, args: CanPlaceAtArgs<'_>) -> bool {
-        if let Some(player) = args.player {
-            let facing = player.living_entity.entity.get_horizontal_facing();
-            return args
-                .block_accessor
-                .get_block_state(args.location)
-                .await
-                .replaceable()
-                && args
-                    .block_accessor
-                    .get_block_state(&args.location.offset(facing.to_offset()))
-                    .await
-                    .replaceable();
-        }
-        false
-    }
-
-    async fn placed(&self, args: PlacedArgs<'_>) {
-        let bed_entity = BedBlockEntity::new(*args.location);
-        args.world.add_block_entity(Arc::new(bed_entity)).await;
-
-        let mut bed_head_props = BedProperties::default(args.block);
-        bed_head_props.facing = BedProperties::from_state_id(args.state_id, args.block).facing;
-        bed_head_props.part = BedPart::Head;
-
-        let bed_head_pos = args.location.offset(bed_head_props.facing.to_offset());
-        args.world
-            .set_block_state(
-                &bed_head_pos,
-                bed_head_props.to_state_id(args.block),
-                BlockFlags::NOTIFY_ALL | BlockFlags::SKIP_BLOCK_ADDED_CALLBACK,
-            )
-            .await;
-
-        let bed_head_entity = BedBlockEntity::new(bed_head_pos);
-        args.world.add_block_entity(Arc::new(bed_head_entity)).await;
-    }
-
-    async fn broken(&self, args: BrokenArgs<'_>) {
-        let bed_props = BedProperties::from_state_id(args.state.id, args.block);
-        let other_half_pos = get_other_half_pos(bed_props, args.location);
-
-        args.world
-            .break_block(
-                &other_half_pos,
-                Some(args.player.clone()),
-                if args.player.gamemode.load() == GameMode::Creative {
-                    BlockFlags::SKIP_DROPS | BlockFlags::NOTIFY_NEIGHBORS
-                } else {
-                    BlockFlags::NOTIFY_NEIGHBORS
-                },
-            )
-            .await;
+        BlockActionResult::Continue
     }
 }
 
@@ -401,45 +491,5 @@ fn get_other_half_pos(bed_props: BedProperties, block_pos: &BlockPos) -> BlockPo
 }
 
 fn entity_prevents_sleep(entity: &Entity) -> bool {
-    match entity.entity_type {
-        EntityType::BLAZE
-        | EntityType::BOGGED
-        | EntityType::SKELETON
-        | EntityType::STRAY
-        | EntityType::WITHER_SKELETON
-        | EntityType::BREEZE
-        | EntityType::CREAKING
-        | EntityType::CREEPER
-        | EntityType::DROWNED
-        | EntityType::ENDERMITE
-        | EntityType::EVOKER
-        | EntityType::GIANT
-        | EntityType::GUARDIAN
-        | EntityType::ELDER_GUARDIAN
-        | EntityType::ILLUSIONER
-        | EntityType::OCELOT
-        | EntityType::PIGLIN
-        | EntityType::PIGLIN_BRUTE
-        | EntityType::PILLAGER
-        | EntityType::PHANTOM
-        | EntityType::RAVAGER
-        | EntityType::SILVERFISH
-        | EntityType::SPIDER
-        | EntityType::CAVE_SPIDER
-        | EntityType::VEX
-        | EntityType::VINDICATOR
-        | EntityType::WARDEN
-        | EntityType::WITCH
-        | EntityType::WITHER
-        | EntityType::ZOGLIN
-        | EntityType::ZOMBIE
-        | EntityType::ZOMBIE_VILLAGER
-        | EntityType::HUSK => true,
-        EntityType::ENDERMAN | EntityType::ZOMBIFIED_PIGLIN => {
-            // TODO: Only when hostile
-            #[allow(clippy::match_same_arms)]
-            true
-        }
-        _ => false,
-    }
+    NO_SLEEP_IDS.contains(&entity.entity_type.id)
 }

@@ -138,7 +138,8 @@ impl<'a> ProtoChunk<'a> {
         let sampler = FluidLevelSampler::Chunk(Box::new(StandardChunkFluidLevelSampler::new(
             FluidLevel::new(
                 settings.sea_level,
-                settings.default_fluid.get_state().unwrap().block(),
+                // Block
+                settings.default_fluid.name,
             ),
             FluidLevel::new(-54, &LAVA_BLOCK), // this is always the same for every dimension
         )));
@@ -168,7 +169,7 @@ impl<'a> ProtoChunk<'a> {
         );
         let multi_noise_config = MultiNoiseSamplerBuilderOptions::new(
             biome_pos.x,
-            biome_pos.z,
+            biome_pos.y,
             horizontal_biome_end as usize,
         );
         let multi_noise_sampler =
@@ -176,7 +177,7 @@ impl<'a> ProtoChunk<'a> {
 
         let surface_config = SurfaceHeightSamplerBuilderOptions::new(
             biome_pos.x,
-            biome_pos.z,
+            biome_pos.y,
             horizontal_biome_end as usize,
             generation_shape.min_y as i32,
             generation_shape.max_y() as i32,
@@ -185,7 +186,7 @@ impl<'a> ProtoChunk<'a> {
         let surface_height_estimate_sampler =
             SurfaceHeightEstimateSampler::generate(&base_router.surface_estimator, &surface_config);
 
-        let default_block = settings.default_block.get_state().unwrap();
+        let default_block = settings.default_block.get_state();
         let default_heightmap = vec![i64::MIN; CHUNK_AREA].into_boxed_slice();
         Self {
             chunk_pos,
@@ -274,28 +275,28 @@ impl<'a> ProtoChunk<'a> {
 
     pub fn top_block_height_exclusive(&self, pos: &Vector2<i32>) -> i64 {
         let local_x = (pos.x & 15) as usize;
-        let local_z = (pos.z & 15) as usize;
+        let local_z = (pos.y & 15) as usize;
         let index = Self::local_position_to_height_map_index(local_x, local_z);
         self.flat_surface_height_map[index] + 1
     }
 
     pub fn ocean_floor_height_exclusive(&self, pos: &Vector2<i32>) -> i64 {
         let local_x = (pos.x & 15) as usize;
-        let local_z = (pos.z & 15) as usize;
+        let local_z = (pos.y & 15) as usize;
         let index = Self::local_position_to_height_map_index(local_x, local_z);
         self.flat_ocean_floor_height_map[index] + 1
     }
 
     pub fn top_motion_blocking_block_height_exclusive(&self, pos: &Vector2<i32>) -> i64 {
         let local_x = (pos.x & 15) as usize;
-        let local_z = (pos.z & 15) as usize;
+        let local_z = (pos.y & 15) as usize;
         let index = Self::local_position_to_height_map_index(local_x, local_z);
         self.flat_motion_blocking_height_map[index] + 1
     }
 
     pub fn top_motion_blocking_block_no_leaves_height_exclusive(&self, pos: &Vector2<i32>) -> i64 {
         let local_x = (pos.x & 15) as usize;
-        let local_z = (pos.z & 15) as usize;
+        let local_z = (pos.y & 15) as usize;
         let index = Self::local_position_to_height_map_index(local_x, local_z);
         self.flat_motion_blocking_no_leaves_height_map[index] + 1
     }
@@ -376,11 +377,10 @@ impl<'a> ProtoChunk<'a> {
 
         if blocks_movement(block_state) || block_state.is_liquid() {
             self.maybe_update_motion_blocking_height_map(pos);
-            if let Some(block) = get_block_by_state_id(block_state.id) {
-                if !block.is_tagged_with("minecraft:leaves").unwrap() {
-                    {
-                        self.maybe_update_motion_blocking_no_leaves_height_map(pos);
-                    }
+            let block = get_block_by_state_id(block_state.id);
+            if !block.is_tagged_with("minecraft:leaves").unwrap() {
+                {
+                    self.maybe_update_motion_blocking_no_leaves_height_map(pos);
                 }
             }
         }
@@ -717,7 +717,7 @@ impl<'a> ProtoChunk<'a> {
         let block_pos = BlockPos(Vector3::new(
             section_coords::section_to_block(chunk_pos.x),
             bottom_section,
-            section_coords::section_to_block(chunk_pos.z),
+            section_coords::section_to_block(chunk_pos.y),
         ));
 
         let population_seed =
@@ -779,7 +779,7 @@ impl BlockAccessor for ProtoChunk<'_> {
         &'static pumpkin_data::BlockState,
     ) {
         let id = self.get_block_state(&position.0);
-        get_block_and_state_by_state_id(id.0).unwrap_or((&Block::AIR, Block::AIR.default_state))
+        get_block_and_state_by_state_id(id.0)
     }
 }
 

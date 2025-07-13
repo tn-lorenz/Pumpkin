@@ -5,15 +5,15 @@ use pumpkin_data::block_properties::{
     BlockProperties, ChestLikeProperties, ChestType, HorizontalFacing,
 };
 use pumpkin_data::entity::EntityPose;
+use pumpkin_data::tag::{RegistryKey, get_tag_values};
 use pumpkin_data::{Block, BlockDirection};
-use pumpkin_macros::pumpkin_block;
 use pumpkin_util::math::position::BlockPos;
 use pumpkin_world::BlockStateId;
 use pumpkin_world::block::entities::chest::ChestBlockEntity;
 use pumpkin_world::world::BlockFlags;
 
 use crate::block::pumpkin_block::{
-    BrokenArgs, OnPlaceArgs, OnStateReplacedArgs, PlacedArgs, UseWithItemArgs,
+    BlockMetadata, BrokenArgs, OnPlaceArgs, OnStateReplacedArgs, PlacedArgs, UseWithItemArgs,
 };
 use crate::entity::EntityBase;
 use crate::world::World;
@@ -22,8 +22,17 @@ use crate::{
     entity::player::Player,
 };
 
-#[pumpkin_block("minecraft:chest")]
 pub struct ChestBlock;
+
+impl BlockMetadata for ChestBlock {
+    fn namespace(&self) -> &'static str {
+        "minecraft"
+    }
+
+    fn ids(&self) -> &'static [&'static str] {
+        get_tag_values(RegistryKey::Block, "c:chests/wooden").unwrap()
+    }
+}
 
 #[async_trait]
 impl PumpkinBlock for ChestBlock {
@@ -36,7 +45,7 @@ impl PumpkinBlock for ChestBlock {
             args.world,
             args.player,
             args.block,
-            args.location,
+            args.position,
             args.direction,
         )
         .await;
@@ -47,7 +56,7 @@ impl PumpkinBlock for ChestBlock {
     }
 
     async fn placed(&self, args: PlacedArgs<'_>) {
-        let chest = ChestBlockEntity::new(*args.location);
+        let chest = ChestBlockEntity::new(*args.position);
         args.world.add_block_entity(Arc::new(chest)).await;
 
         let chest_props = ChestLikeProperties::from_state_id(args.state_id, args.block);
@@ -60,7 +69,7 @@ impl PumpkinBlock for ChestBlock {
         if let Some(mut neighbor_props) = get_chest_properties_if_can_connect(
             args.world,
             args.block,
-            args.location,
+            args.position,
             chest_props.facing,
             connected_towards,
             ChestType::Single,
@@ -71,7 +80,7 @@ impl PumpkinBlock for ChestBlock {
 
             args.world
                 .set_block_state(
-                    &args.location.offset(connected_towards.to_offset()),
+                    &args.position.offset(connected_towards.to_offset()),
                     neighbor_props.to_state_id(args.block),
                     BlockFlags::NOTIFY_LISTENERS,
                 )
@@ -80,7 +89,7 @@ impl PumpkinBlock for ChestBlock {
     }
 
     async fn on_state_replaced(&self, args: OnStateReplacedArgs<'_>) {
-        args.world.remove_block_entity(args.location).await;
+        args.world.remove_block_entity(args.position).await;
     }
 
     async fn use_with_item(&self, _args: UseWithItemArgs<'_>) -> BlockActionResult {
@@ -98,7 +107,7 @@ impl PumpkinBlock for ChestBlock {
         if let Some(mut neighbor_props) = get_chest_properties_if_can_connect(
             args.world,
             args.block,
-            args.location,
+            args.position,
             chest_props.facing,
             connected_towards,
             chest_props.r#type.opposite(),
@@ -109,7 +118,7 @@ impl PumpkinBlock for ChestBlock {
 
             args.world
                 .set_block_state(
-                    &args.location.offset(connected_towards.to_offset()),
+                    &args.position.offset(connected_towards.to_offset()),
                     neighbor_props.to_state_id(args.block),
                     BlockFlags::NOTIFY_LISTENERS,
                 )
