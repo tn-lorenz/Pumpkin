@@ -69,6 +69,7 @@ pub struct PersistentDataContainer {
     pub data: DashMap<NamespacedKey, PersistentDataType>,
 }
 
+/// A list of all currently allowed Types that can be stored inside a `PersistentDataContainer`
 #[allow(dead_code)]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum PersistentDataType {
@@ -129,6 +130,9 @@ impl PersistentDataContainer {
     }
 }
 
+/// A trait that defines functions on a struct that holds a `PersistentDataContainer`
+///
+/// These are used inside the `PersistentDataHolder` derive macro that defines a struct as a holder of a `PersistentDataContainer` by generating the implementation of these functions.
 pub trait PersistentDataHolder {
     fn clear(&self);
     fn get(&self, key: &NamespacedKey) -> Option<PersistentDataType>;
@@ -139,123 +143,52 @@ pub trait PersistentDataHolder {
     fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_>;
 }
 
+/// Gets the actual value that has been wrapped inside a `PersistentDataType`
 pub trait FromPersistentDataType: Sized {
     fn from_persistent(value: &PersistentDataType) -> Option<Self>;
 }
 
-impl FromPersistentDataType for bool {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::Bool(v) => Some(*v),
-            _ => None,
+/// This simple proc macro enables easy implementation of the `FromPersistentDataType` trait because the logic is trivial
+#[macro_export]
+macro_rules! from_persistent {
+    // Copy types
+    ($variant:ident, $ty:ty) => {
+        impl FromPersistentDataType for $ty {
+            fn from_persistent(value: &PersistentDataType) -> Option<Self> {
+                match value {
+                    PersistentDataType::$variant(v) => Some(*v),
+                    _ => None,
+                }
+            }
         }
-    }
+    };
+
+    // Clone types
+    (clone $variant:ident, $ty:ty) => {
+        impl FromPersistentDataType for $ty {
+            fn from_persistent(value: &PersistentDataType) -> Option<Self> {
+                match value {
+                    PersistentDataType::$variant(v) => Some(v.clone()),
+                    _ => None,
+                }
+            }
+        }
+    };
 }
 
-impl FromPersistentDataType for String {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::String(v) => Some(v.clone()),
-            _ => None,
-        }
-    }
-}
+// Copy types
+from_persistent!(Bool, bool);
+from_persistent!(Char, char);
+from_persistent!(I32, i32);
+from_persistent!(I64, i64);
+from_persistent!(U8, u8);
+from_persistent!(U16, u16);
+from_persistent!(U32, u32);
+from_persistent!(U64, u64);
+from_persistent!(F32, f32);
+from_persistent!(F64, f64);
 
-impl FromPersistentDataType for char {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::Char(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for i32 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::I32(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for i64 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::I64(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for u8 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::U8(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for u16 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::U16(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for u32 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::U32(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for u64 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::U64(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for f32 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::F32(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for f64 {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::F64(v) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for Vec<u8> {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::Bytes(v) => Some(v.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl FromPersistentDataType for Vec<PersistentDataType> {
-    fn from_persistent(value: &PersistentDataType) -> Option<Self> {
-        match value {
-            PersistentDataType::List(v) => Some(v.clone()),
-            _ => None,
-        }
-    }
-}
+// Clone types
+from_persistent!(clone String, String);
+from_persistent!(clone Bytes, Vec<u8>);
+from_persistent!(clone List, Vec<PersistentDataType>);
