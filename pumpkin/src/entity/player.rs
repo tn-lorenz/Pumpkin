@@ -76,7 +76,10 @@ use crate::command::dispatcher::CommandDispatcher;
 use crate::data::op_data::OPERATOR_CONFIG;
 use crate::net::PlayerConfig;
 use crate::net::{ClientPlatform, GameProfile};
-use crate::plugin::persistence::{HasPersistentContainer, PersistentDataContainer};
+use crate::plugin::persistence::{
+    FromPersistentDataType, NamespacedKey, PersistentDataContainer, PersistentDataHolder,
+    PersistentDataType,
+};
 use crate::plugin::player::player_change_world::PlayerChangeWorldEvent;
 use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
 use crate::plugin::player::player_teleport::PlayerTeleportEvent;
@@ -268,6 +271,7 @@ pub struct Player {
     pub screen_handler_listener: Arc<dyn ScreenHandlerListener>,
     pub screen_handler_sync_handler: Arc<SyncHandler>,
     /// The `PersistentDataContainer`
+    #[persistent_data]
     pub container: PersistentDataContainer,
 }
 

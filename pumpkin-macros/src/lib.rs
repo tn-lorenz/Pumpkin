@@ -353,16 +353,58 @@ pub fn block_property(input: TokenStream, item: TokenStream) -> TokenStream {
     code.into()
 }
 
-// Assumes the struct has a `container: PersistentDataContainer` field
-#[proc_macro_derive(PersistentDataHolder)]
+#[proc_macro_derive(PersistentDataHolder, attributes(persistent_data))]
 pub fn derive_persistent(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
 
+    let field = if let syn::Data::Struct(data) = &input.data {
+        data.fields.iter().find_map(|f| {
+            for attr in &f.attrs {
+                let path = attr.path();
+                if path.is_ident("persistent_data") {
+                    return f.ident.clone();
+                }
+            }
+            None
+        })
+    } else {
+        None
+    };
+
+    let field = match field {
+        Some(f) => f,
+        None => panic!("No field annotated with #[persistent_data] found"),
+    };
+
     let expanded = quote! {
-        impl HasPersistentContainer for #name {
-            fn persistent_container(&self) -> &PersistentDataContainer {
-                &self.container
+        impl PersistentDataHolder for #name {
+            fn clear(&self) {
+                self.#field.clear();
+            }
+
+            fn get(&self, key: &NamespacedKey) -> Option<PersistentDataType> {
+                self.#field.get(key)
+            }
+
+            fn get_as<T: FromPersistentDataType>(&self, key: &NamespacedKey) -> Option<T> {
+                self.get(key).and_then(|v| T::from_persistent(&v))
+            }
+
+            fn insert(&self, key: &NamespacedKey, value: PersistentDataType) {
+                self.#field.insert(key, value);
+            }
+
+            fn remove(&self, key: &NamespacedKey) -> Option<PersistentDataType> {
+                self.#field.remove(key).map(|(_k, v)| v)
+            }
+
+            fn contains_key(&self, key: &NamespacedKey) -> bool {
+                self.#field.contains_key(key)
+            }
+
+            fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_> {
+                Box::new(self.#field.iter())
             }
         }
     };

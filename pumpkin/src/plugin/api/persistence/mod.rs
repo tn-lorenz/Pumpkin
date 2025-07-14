@@ -129,10 +129,6 @@ impl PersistentDataContainer {
     }
 }
 
-pub trait HasPersistentContainer {
-    fn persistent_container(&self) -> &PersistentDataContainer;
-}
-
 pub trait PersistentDataHolder {
     fn clear(&self);
     fn get(&self, key: &NamespacedKey) -> Option<PersistentDataType>;
@@ -141,36 +137,6 @@ pub trait PersistentDataHolder {
     fn remove(&self, key: &NamespacedKey) -> Option<PersistentDataType>;
     fn contains_key(&self, key: &NamespacedKey) -> bool;
     fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_>;
-}
-
-impl<T: HasPersistentContainer> PersistentDataHolder for T {
-    fn clear(&self) {
-        self.persistent_container().clear();
-    }
-
-    fn get(&self, key: &NamespacedKey) -> Option<PersistentDataType> {
-        self.persistent_container().get(key)
-    }
-
-    fn get_as<U: FromPersistentDataType>(&self, key: &NamespacedKey) -> Option<U> {
-        self.get(key).and_then(|v| U::from_persistent(&v))
-    }
-
-    fn insert(&self, key: &NamespacedKey, value: PersistentDataType) {
-        self.persistent_container().insert(key, value);
-    }
-
-    fn remove(&self, key: &NamespacedKey) -> Option<PersistentDataType> {
-        self.persistent_container().remove(key).map(|(_, v)| v)
-    }
-
-    fn contains_key(&self, key: &NamespacedKey) -> bool {
-        self.persistent_container().contains_key(key)
-    }
-
-    fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_> {
-        Box::new(self.persistent_container().iter())
-    }
 }
 
 pub trait FromPersistentDataType: Sized {
