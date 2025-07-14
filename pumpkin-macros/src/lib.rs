@@ -3,7 +3,7 @@ use proc_macro::TokenStream;
 use proc_macro_error2::{abort, abort_call_site, proc_macro_error};
 use quote::quote;
 use syn::spanned::Spanned;
-use syn::{self};
+use syn::{self, DeriveInput};
 use syn::{
     Block, Expr, Field, Fields, ItemStruct, Stmt,
     parse::{Nothing, Parser},
@@ -351,4 +351,21 @@ pub fn block_property(input: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     code.into()
+}
+
+// Assumes the struct has a `container: PersistentDataContainer` field
+#[proc_macro_derive(PersistentDataHolder)]
+pub fn derive_persistent(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+
+    let expanded = quote! {
+        impl HasPersistentContainer for #name {
+            fn persistent_container(&self) -> &PersistentDataContainer {
+                &self.container
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
 }

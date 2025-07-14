@@ -32,7 +32,7 @@ use pumpkin_inventory::screen_handler::{
     ScreenHandlerListener,
 };
 use pumpkin_inventory::sync_handler::SyncHandler;
-use pumpkin_macros::send_cancellable;
+use pumpkin_macros::{PersistentDataHolder, send_cancellable};
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
 use pumpkin_protocol::IdOr;
@@ -64,25 +64,25 @@ use pumpkin_world::entity::entity_data_flags::{
 use pumpkin_world::item::ItemStack;
 use pumpkin_world::level::{SyncChunk, SyncEntityChunk};
 
-use crate::block::blocks::bed::BedBlock;
-use crate::command::client_suggestions;
-use crate::command::dispatcher::CommandDispatcher;
-use crate::data::op_data::OPERATOR_CONFIG;
-use crate::net::PlayerConfig;
-use crate::net::{ClientPlatform, GameProfile};
-use crate::plugin::player::player_change_world::PlayerChangeWorldEvent;
-use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
-use crate::plugin::player::player_teleport::PlayerTeleportEvent;
-use crate::server::Server;
-use crate::world::World;
-use crate::{PERMISSION_MANAGER, block};
-
 use super::combat::{self, AttackType, player_attack_sound};
 use super::effect::Effect;
 use super::hunger::HungerManager;
 use super::item::ItemEntity;
 use super::living::LivingEntity;
 use super::{Entity, EntityBase, EntityId, NBTStorage};
+use crate::block::blocks::bed::BedBlock;
+use crate::command::client_suggestions;
+use crate::command::dispatcher::CommandDispatcher;
+use crate::data::op_data::OPERATOR_CONFIG;
+use crate::net::PlayerConfig;
+use crate::net::{ClientPlatform, GameProfile};
+use crate::plugin::persistence::{HasPersistentContainer, PersistentDataContainer};
+use crate::plugin::player::player_change_world::PlayerChangeWorldEvent;
+use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
+use crate::plugin::player::player_teleport::PlayerTeleportEvent;
+use crate::server::Server;
+use crate::world::World;
+use crate::{PERMISSION_MANAGER, block};
 
 const MAX_CACHED_SIGNATURES: u8 = 128; // Vanilla: 128
 const MAX_PREVIOUS_MESSAGES: u8 = 20; // Vanilla: 20
@@ -186,6 +186,7 @@ impl ChunkManager {
 /// Represents a Minecraft player entity.
 ///
 /// A `Player` is a special type of entity that represents a human player connected to the server.
+#[derive(PersistentDataHolder)]
 pub struct Player {
     /// The underlying living entity object that represents the player.
     pub living_entity: LivingEntity,
@@ -266,6 +267,8 @@ pub struct Player {
     pub screen_handler_sync_id: AtomicU8,
     pub screen_handler_listener: Arc<dyn ScreenHandlerListener>,
     pub screen_handler_sync_handler: Arc<SyncHandler>,
+    /// The `PersistentDataContainer`
+    pub container: PersistentDataContainer,
 }
 
 impl Player {
@@ -368,6 +371,7 @@ impl Player {
             screen_handler_sync_id: AtomicU8::new(0),
             screen_handler_listener: Arc::new(ScreenListener {}),
             screen_handler_sync_handler: Arc::new(SyncHandler::new()),
+            container: PersistentDataContainer::new(),
         }
     }
 
