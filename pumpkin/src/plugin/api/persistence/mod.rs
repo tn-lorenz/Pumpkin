@@ -1,3 +1,5 @@
+pub mod nbt;
+
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
@@ -7,8 +9,8 @@ use serde::{Deserialize, Serialize};
 #[allow(dead_code)]
 #[derive(Eq, Hash, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct NamespacedKey {
-    namespace: String,
-    key: String,
+    pub(crate) namespace: String,
+    pub(crate) key: String,
 }
 
 #[derive(Debug)]
@@ -50,6 +52,12 @@ impl NamespacedKey {
     }
 }
 
+impl std::fmt::Display for NamespacedKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.namespace, self.key)
+    }
+}
+
 /// Macro to conveniently create a `NamespacedKey` using the crate's package name as the namespace.
 ///
 /// # Parameters
@@ -70,6 +78,9 @@ macro_rules! ns_key {
 /// Type alias for a concurrent map that holds `NamespacedKey`s associated with their persistent values.
 ///
 /// This container uses `DashMap` to provide thread-safe concurrent access.
+///
+/// Note: This is `pub(crate)` so not all methods on `DashMap` are needlessly exposed.
+/// Instead, the methods from the `PersistentDataHolder` trait should be used.
 pub(crate) type PersistentDataContainer = DashMap<NamespacedKey, PersistentDataType>;
 
 /// Enum representing all allowed data types that can be stored in a `PersistentDataContainer`.
@@ -87,7 +98,7 @@ pub enum PersistentDataType {
     U64(u64),
     F32(f32),
     F64(f64),
-    Bytes(Vec<u8>),
+    Bytes(Box<[u8]>),
     List(Vec<PersistentDataType>),
 }
 
@@ -168,5 +179,5 @@ from_persistent!(F64, f64);
 
 // Clone types
 from_persistent!(clone String, String);
-from_persistent!(clone Bytes, Vec<u8>);
+from_persistent!(clone Bytes, Box<[u8]>);
 from_persistent!(clone List, Vec<PersistentDataType>);
