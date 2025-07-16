@@ -358,24 +358,56 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
 
-    let field = if let syn::Data::Struct(data) = &input.data {
+    // Get field and its type
+    let Some((field_ident, field_ty)) = (if let syn::Data::Struct(data) = &input.data {
         data.fields.iter().find_map(|f| {
             for attr in &f.attrs {
-                let path = attr.path();
-                if path.is_ident("persistent_data") {
-                    return f.ident.clone();
+                if attr.path().is_ident("persistent_data") {
+                    return Some((f.ident.clone()?, &f.ty));
                 }
             }
             None
         })
     } else {
         None
+    }) else {
+        return syn::Error::new_spanned(
+            name,
+            "No field annotated with #[persistent_data] found in struct",
+        )
+        .to_compile_error()
+        .into();
     };
 
-    let field = match field {
-        Some(f) => f,
-        None => panic!("No field annotated with #[persistent_data] found"),
+    // Check if the field holds a `PersistentDataContainer`
+    let is_valid_type = match field_ty {
+        syn::Type::Path(type_path) => {
+            let segments: Vec<_> = type_path.path.segments.iter().collect();
+            match segments.as_slice() {
+                [seg] => seg.ident == "PersistentDataContainer",
+                [a, b, c, d, e] => {
+                    a.ident == "pumpkin"
+                        && b.ident == "plugin"
+                        && c.ident == "api"
+                        && d.ident == "persistence"
+                        && e.ident == "PersistentDataContainer"
+                }
+                _ => false,
+            }
+        }
+        _ => false,
     };
+
+    if !is_valid_type {
+        return syn::Error::new_spanned(
+            field_ty,
+            "Field annotated with #[persistent_data] must have type `PersistentDataContainer`",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let field = field_ident;
 
     let expanded = quote! {
         impl PersistentDataHolder for #name {

@@ -148,7 +148,7 @@ pub trait FromPersistentDataType: Sized {
     fn from_persistent(value: &PersistentDataType) -> Option<Self>;
 }
 
-/// This simple proc macro enables easy implementation of the `FromPersistentDataType` trait because the logic is trivial
+/// This simple proc macro enables easy implementation of the `FromPersistentDataType` trait because the implementation logic is extremely repetitive
 #[macro_export]
 macro_rules! from_persistent {
     // Copy types
