@@ -374,14 +374,13 @@ pub fn block_property(input: TokenStream, item: TokenStream) -> TokenStream {
 /// ```ignore
 /// use your_crate::PersistentDataHolder;
 ///
-/// struct MyStruct {
-///     #[persistent_data]
-///     data: PersistentDataContainer,
-/// }
-///
-/// // Automatically implements PersistentDataHolder for MyStruct
+/// // Automatically implements PersistentDataHolder for `Person`
 /// #[derive(PersistentDataHolder)]
-/// struct MyStruct { /* ... */ }
+/// pub struct Person {
+///     pub name: String,
+///     #[persistent_data]
+///     pub(crate) container: PersistentDataContainer,
+/// }
 /// ```
 pub fn derive_persistent(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -456,7 +455,10 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
             }
 
             fn insert(&self, key: &NamespacedKey, value: PersistentDataType) {
-                self.#field.insert(key.clone(), value);
+                if let Some(_old_value) = self.#field.insert(key.clone(), value) {
+                    #[cfg(debug_assertions)]
+                    log::warn!("Inserting key {:?} which already existed in PersistentDataContainer, overwriting old value.", key);
+                }
             }
 
             fn remove(&self, key: &NamespacedKey) -> Option<PersistentDataType> {

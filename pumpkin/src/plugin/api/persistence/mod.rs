@@ -15,6 +15,7 @@ pub struct NamespacedKey {
 pub enum NamespacedKeyError {
     NonAsciiNamespace,
     NonAsciiKey,
+    AmbiguousKey,
 }
 
 /// Constructs a new `NamespacedKey`.
