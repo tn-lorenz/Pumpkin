@@ -354,11 +354,40 @@ pub fn block_property(input: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_derive(PersistentDataHolder, attributes(persistent_data))]
+/// Derive macro to automatically implement the `PersistentDataHolder` trait for a struct.
+///
+/// This macro looks for a single struct field annotated with `#[persistent_data]`
+/// and verifies that this field is of type `PersistentDataContainer`.
+///
+/// It then generates the implementation of the `PersistentDataHolder` trait
+/// that delegates all trait methods to this field.
+///
+/// # Requirements
+/// - Exactly one struct field must be annotated with `#[persistent_data]`.
+/// - The annotated field must have the type `PersistentDataContainer` (fully qualified as needed).
+///
+/// # Errors
+/// - Compilation will fail if no field is annotated with `#[persistent_data]`.
+/// - Compilation will fail if the annotated field is not of the correct type.
+///
+/// # Example
+/// ```ignore
+/// use your_crate::PersistentDataHolder;
+///
+/// struct MyStruct {
+///     #[persistent_data]
+///     data: PersistentDataContainer,
+/// }
+///
+/// // Automatically implements PersistentDataHolder for MyStruct
+/// #[derive(PersistentDataHolder)]
+/// struct MyStruct { /* ... */ }
+/// ```
 pub fn derive_persistent(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
 
-    // Get field and its type
+    // Find the struct field annotated with #[persistent_data]
     let Some((field_ident, field_ty)) = (if let syn::Data::Struct(data) = &input.data {
         data.fields.iter().find_map(|f| {
             for attr in &f.attrs {
@@ -379,12 +408,14 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
         .into();
     };
 
-    // Check if the field holds a `PersistentDataContainer`
+    // Verify the type of the annotated field is PersistentDataContainer
     let is_valid_type = match field_ty {
         syn::Type::Path(type_path) => {
             let segments: Vec<_> = type_path.path.segments.iter().collect();
             match segments.as_slice() {
+                // Handles local type: PersistentDataContainer
                 [seg] => seg.ident == "PersistentDataContainer",
+                // Handles fully qualified type path, e.g. pumpkin::plugin::api::persistence::PersistentDataContainer
                 [a, b, c, d, e] => {
                     a.ident == "pumpkin"
                         && b.ident == "plugin"
@@ -409,6 +440,7 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
 
     let field = field_ident;
 
+    // Generate the implementation of PersistentDataHolder trait by delegating to the annotated field
     let expanded = quote! {
         impl PersistentDataHolder for #name {
             fn clear(&self) {

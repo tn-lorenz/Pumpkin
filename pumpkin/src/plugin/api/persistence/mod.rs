@@ -1,9 +1,9 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
-/// The `NamespacedKey` struct
+/// Represents a key with an associated namespace.
 ///
-/// This struct associates a namespace to a key, so persistent data can be differentiated by plugin.
+/// This struct is used to differentiate persistent data by plugin through namespacing.
 #[allow(dead_code)]
 #[derive(Eq, Hash, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct NamespacedKey {
@@ -17,27 +17,28 @@ pub enum NamespacedKeyError {
     NonAsciiKey,
 }
 
-/// The `NamespacedKey` constructor
+/// Constructs a new `NamespacedKey`.
 ///
-/// `new()` must only be called via the `ns_key!` macro.
+/// Note: This method should only be called via the `ns_key!` macro.
 ///
 /// # Parameters
-/// - `namespace`: namespace of the key, must be equal to the `CARGO_PKG_NAME`
-/// - `key`: The key as a String
+/// - `namespace`: The namespace for the key, typically set to the crate's name (`CARGO_PKG_NAME`).
+/// - `key`: The key string.
 ///
 /// # Returns
-/// - Self
+/// - `Ok(Self)` if both namespace and key contain only ASCII characters (case-insensitive).
+/// - `Err(NamespacedKeyError)` if either contains non-ASCII characters.
 impl NamespacedKey {
     #[allow(dead_code)]
     pub(crate) fn new(namespace: &str, key: &str) -> Result<Self, NamespacedKeyError> {
         if !namespace.is_ascii() {
             #[cfg(debug_assertions)]
-            log::error!("Invalid namespace: '{namespace}' is not pure ASCII.");
+            log::error!("Invalid namespace: '{namespace}' contains non-ASCII characters.");
             return Err(NamespacedKeyError::NonAsciiNamespace);
         }
         if !key.is_ascii() {
             #[cfg(debug_assertions)]
-            log::error!("Invalid key: '{key}' is not pure ASCII.");
+            log::error!("Invalid key: '{key}' contains non-ASCII characters.");
             return Err(NamespacedKeyError::NonAsciiKey);
         }
 
@@ -48,26 +49,29 @@ impl NamespacedKey {
     }
 }
 
-/// A macro used to create a new `NamespacedKey` without having to manually pass the `CARGO_PKG_NAME` by using the `env!()` macro
+/// Macro to conveniently create a `NamespacedKey` using the crate's package name as the namespace.
 ///
 /// # Parameters
-/// - `$value`: the key you want to create as a String.
+/// - `$value`: The key string.
+///
+/// # Panics
+/// Panics if the key or namespace contains non-ASCII characters.
 #[macro_export]
 macro_rules! ns_key {
     ($value:expr) => {
         match $crate::plugin::NamespacedKey::new(env!("CARGO_PKG_NAME"), $value) {
             Ok(key) => key,
-            Err(e) => panic!("ns_key! macro failed: {:?}", e);
+            Err(e) => panic!("ns_key! macro failed: {:?}", e),
         }
     };
 }
 
-/// The `PersistentDataContainer` type
+/// Type alias for a concurrent map that holds `NamespacedKey`s associated with their persistent values.
 ///
-/// This type wraps a `DashMap` that contains `NamespacedKey`s and associates them with `PersistentValue`s for maximum concurrency.
+/// This container uses `DashMap` to provide thread-safe concurrent access.
 pub(crate) type PersistentDataContainer = DashMap<NamespacedKey, PersistentDataType>;
 
-/// A list of all currently allowed Types that can be stored inside a `PersistentDataContainer`
+/// Enum representing all allowed data types that can be stored in a `PersistentDataContainer`.
 #[allow(dead_code)]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum PersistentDataType {
@@ -86,28 +90,45 @@ pub enum PersistentDataType {
     List(Vec<PersistentDataType>),
 }
 
-/// A trait that defines functions on a struct that holds a `PersistentDataContainer`
+/// Trait defining common operations for structs that hold a `PersistentDataContainer`.
 ///
-/// These are used inside the `PersistentDataHolder` derive macro that defines a struct as a holder of a `PersistentDataContainer` by generating the implementation of these functions.
+/// This trait is typically implemented via the `PersistentDataHolder` derive macro,
+/// which auto-generates the necessary method implementations.
 pub trait PersistentDataHolder {
+    /// Clears all stored data.
     fn clear(&self);
+    /// Retrieves the value associated with the specified key, if it exists.
     fn get(&self, key: &NamespacedKey) -> Option<PersistentDataType>;
+    /// Retrieves the value associated with the specified key, converted into type `T` if possible.
     fn get_as<T: FromPersistentDataType>(&self, key: &NamespacedKey) -> Option<T>;
+    /// Inserts or updates the value for the specified key.
     fn insert(&self, key: &NamespacedKey, value: PersistentDataType);
+    /// Removes the value associated with the specified key and returns it if present.
     fn remove(&self, key: &NamespacedKey) -> Option<PersistentDataType>;
+    /// Checks whether the container contains the specified key.
     fn contains_key(&self, key: &NamespacedKey) -> bool;
+    /// Returns an iterator over all key-value pairs in the container.
     fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_>;
 }
 
-/// Gets the actual value that has been wrapped inside a `PersistentDataType`
+/// Trait to extract the inner value from a `PersistentDataType`.
+///
+/// This trait enables type-safe conversion from the enum wrapper to the contained value.
 pub trait FromPersistentDataType: Sized {
+    /// Attempts to convert a reference to a `PersistentDataType` into the implementing type.
     fn from_persistent(value: &PersistentDataType) -> Option<Self>;
 }
 
-/// This simple proc macro enables easy implementation of the `FromPersistentDataType` trait because the implementation logic is extremely repetitive
+/// Macro to simplify implementation of `FromPersistentDataType` for types with repetitive logic.
+///
+/// Supports both `Copy` and `Clone` types.
+///
+/// # Usage
+/// - For `Copy` types: `from_persistent!(VariantName, Type);`
+/// - For `Clone` types: `from_persistent!(clone VariantName, Type);`
 #[macro_export]
 macro_rules! from_persistent {
-    // Copy types
+    // For Copy types
     ($variant:ident, $ty:ty) => {
         impl FromPersistentDataType for $ty {
             fn from_persistent(value: &PersistentDataType) -> Option<Self> {
@@ -119,7 +140,7 @@ macro_rules! from_persistent {
         }
     };
 
-    // Clone types
+    // For Clone types
     (clone $variant:ident, $ty:ty) => {
         impl FromPersistentDataType for $ty {
             fn from_persistent(value: &PersistentDataType) -> Option<Self> {
