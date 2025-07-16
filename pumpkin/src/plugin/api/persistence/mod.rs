@@ -2,6 +2,8 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
 /// The `NamespacedKey` struct
+///
+/// This struct associates a namespace to a key, so persistent data can be differentiated by plugin.
 #[allow(dead_code)]
 #[derive(Eq, Hash, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct NamespacedKey {
@@ -60,14 +62,10 @@ macro_rules! ns_key {
     };
 }
 
-/// The `PersistentDataContainer` struct
+/// The `PersistentDataContainer` type
 ///
-/// This struct contains `NamespacedKey`s and associates them with `PersistentValue`s using a `DashMap` for maximum concurrency.
-#[allow(dead_code)]
-#[derive(Default, Debug)]
-pub struct PersistentDataContainer {
-    data: DashMap<NamespacedKey, PersistentDataType>,
-}
+/// This type wraps a `DashMap` that contains `NamespacedKey`s and associates them with `PersistentValue`s for maximum concurrency.
+pub(crate) type PersistentDataContainer = DashMap<NamespacedKey, PersistentDataType>;
 
 /// A list of all currently allowed Types that can be stored inside a `PersistentDataContainer`
 #[allow(dead_code)]
@@ -86,48 +84,6 @@ pub enum PersistentDataType {
     F64(f64),
     Bytes(Vec<u8>),
     List(Vec<PersistentDataType>),
-}
-
-impl PersistentDataContainer {
-    pub(crate) fn new() -> Self {
-        Self {
-            data: DashMap::new(),
-        }
-    }
-
-    pub fn clear(&self) {
-        self.data.clear();
-    }
-
-    #[must_use]
-    pub fn get(&self, key: &NamespacedKey) -> Option<PersistentDataType> {
-        self.data.get(key).map(|v| v.clone())
-    }
-
-    #[must_use]
-    pub fn get_as<T: FromPersistentDataType>(&self, key: &NamespacedKey) -> Option<T> {
-        self.get(key).and_then(|v| T::from_persistent(&v))
-    }
-
-    pub fn insert(&self, key: &NamespacedKey, value: PersistentDataType) {
-        self.data.insert(key.clone(), value);
-    }
-
-    #[must_use]
-    pub fn remove(&self, key: &NamespacedKey) -> Option<(NamespacedKey, PersistentDataType)> {
-        self.data.remove(key)
-    }
-
-    #[must_use]
-    pub fn contains_key(&self, key: &NamespacedKey) -> bool {
-        self.data.contains_key(key)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (NamespacedKey, PersistentDataType)> + '_ {
-        self.data
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-    }
 }
 
 /// A trait that defines functions on a struct that holds a `PersistentDataContainer`

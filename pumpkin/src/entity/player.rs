@@ -272,7 +272,7 @@ pub struct Player {
     pub screen_handler_sync_handler: Arc<SyncHandler>,
     /// The `PersistentDataContainer`
     #[persistent_data]
-    pub container: PersistentDataContainer,
+    pub(crate) container: PersistentDataContainer,
 }
 
 impl Player {

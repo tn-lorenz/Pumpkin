@@ -416,7 +416,7 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
             }
 
             fn get(&self, key: &NamespacedKey) -> Option<PersistentDataType> {
-                self.#field.get(key)
+                self.#field.get(key).map(|v| v.clone())
             }
 
             fn get_as<T: FromPersistentDataType>(&self, key: &NamespacedKey) -> Option<T> {
@@ -424,7 +424,7 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
             }
 
             fn insert(&self, key: &NamespacedKey, value: PersistentDataType) {
-                self.#field.insert(key, value);
+                self.#field.insert(key.clone(), value);
             }
 
             fn remove(&self, key: &NamespacedKey) -> Option<PersistentDataType> {
@@ -436,7 +436,7 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
             }
 
             fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_> {
-                Box::new(self.#field.iter())
+                Box::new(self.#field.iter().map(|entry| (entry.key().clone(), entry.value().clone())))
             }
         }
     };
