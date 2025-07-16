@@ -66,7 +66,7 @@ macro_rules! ns_key {
 #[allow(dead_code)]
 #[derive(Default, Debug)]
 pub struct PersistentDataContainer {
-    pub data: DashMap<NamespacedKey, PersistentDataType>,
+    data: DashMap<NamespacedKey, PersistentDataType>,
 }
 
 /// A list of all currently allowed Types that can be stored inside a `PersistentDataContainer`
