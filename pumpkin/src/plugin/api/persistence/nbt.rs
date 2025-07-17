@@ -44,3 +44,51 @@ impl NbtCompoundExt for NbtCompound {
         container
     }
 }
+
+// Orphan rules suck hairy ass
+#[must_use]
+pub fn from_pdc(holder: &PersistentDataContainer) -> NbtCompound {
+    let mut compound = NbtCompound::new();
+
+    // Build Map from namespace to sub-compound
+    let mut namespace_map: std::collections::HashMap<String, NbtCompound> =
+        std::collections::HashMap::new();
+
+    for entry in holder {
+        let key = entry.key();
+        let value = entry.value();
+
+        let ns_compound = namespace_map.entry(key.namespace.clone()).or_default();
+
+        let tag = match value {
+            PersistentDataType::Bool(b) => NbtTag::Byte(i8::from(*b)),
+            PersistentDataType::I32(i) => NbtTag::Int(*i),
+            PersistentDataType::I64(l) => NbtTag::Long(*l),
+            PersistentDataType::F32(f) => NbtTag::Float(*f),
+            PersistentDataType::F64(d) => NbtTag::Double(*d),
+            PersistentDataType::String(s) => NbtTag::String(s.clone()),
+            PersistentDataType::Bytes(bytes) => NbtTag::ByteArray(bytes.clone()),
+            PersistentDataType::List(list) => {
+                let nbt_list = list
+                    .iter()
+                    .map(|elem| match elem {
+                        PersistentDataType::I32(i) => NbtTag::Int(*i),
+                        PersistentDataType::String(s) => NbtTag::String(s.clone()),
+                        _ => unimplemented!(), // TODO: Add more
+                    })
+                    .collect();
+                NbtTag::List(nbt_list)
+            }
+            _ => unimplemented!(), // TODO: Add more
+        };
+
+        ns_compound.put(&key.key, tag);
+    }
+
+    // Place all namespaced sub-compounds inside root compound
+    for (namespace, ns_compound) in namespace_map {
+        compound.put(&namespace, NbtTag::Compound(ns_compound));
+    }
+
+    compound
+}

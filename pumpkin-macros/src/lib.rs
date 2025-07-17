@@ -473,48 +473,6 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
                 Box::new(self.#field.iter().map(|entry| (entry.key().clone(), entry.value().clone())))
             }
         }
-
-        impl From<&#name> for NbtCompound {
-            fn from(holder: &#name) -> Self {
-                let mut compound = NbtCompound::new();
-
-                // Build Map from namespace to sub-compound
-                let mut namespace_map: std::collections::HashMap<String, NbtCompound> = std::collections::HashMap::new();
-
-                for (key, value) in holder.iter() {
-                    let ns_compound = namespace_map.entry(key.namespace.clone()).or_insert_with(NbtCompound::new);
-
-                    // PersistentDataType -> NbtTag
-                    let tag = match value {
-                        PersistentDataType::Bool(b) => NbtTag::Byte(if b {1} else {0}),
-                        PersistentDataType::I32(i) => NbtTag::Int(i),
-                        PersistentDataType::I64(l) => NbtTag::Long(l),
-                        PersistentDataType::F32(f) => NbtTag::Float(f),
-                        PersistentDataType::F64(d) => NbtTag::Double(d),
-                        PersistentDataType::String(s) => NbtTag::String(s.clone()),
-                        PersistentDataType::Bytes(bytes) => NbtTag::ByteArray(bytes.clone()),
-                        PersistentDataType::List(list) => {
-                            let nbt_list = list.iter().map(|elem| {
-                                match elem {
-                                    PersistentDataType::I32(i) => NbtTag::Int(*i),
-                                    PersistentDataType::String(s) => NbtTag::String(s.clone()),
-                                    _ => unimplemented!(), // TODO: Add more
-                                }
-                            }).collect();
-                            NbtTag::List(nbt_list)
-                        },
-                        _ => unimplemented!(), // TODO: Add more
-                    };
-                    ns_compound.put(&key.key, tag);
-                }
-
-                // Place all namespaced sub-compounds inside root-compound
-                for (namespace, ns_compound) in namespace_map {
-                    compound.put(&namespace, NbtTag::Compound(ns_compound));
-                }
-                compound
-            }
-        }
     };
 
     TokenStream::from(expanded)
