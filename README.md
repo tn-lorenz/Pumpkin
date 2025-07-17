@@ -86,7 +86,7 @@ and customizable experience. It prioritizes performance and player enjoyment whi
   - [ ] Boss
   - [ ] Villagers
   - [ ] Mobs Inventory
-  - [X] Entity Saving
+  - [ ] Entity Saving
 - Server
   - [x] Plugins (W.I.P)
   - [x] Query
