@@ -82,6 +82,7 @@ pub trait EntityBase: Send + Sync {
     }
 
     async fn write_nbt(&self, nbt: &mut NbtCompound) {
+        log::info!("write_nbt called");
         let entity = self.get_entity();
         let compound = from_pdc(&self.get_entity().container);
 
@@ -95,6 +96,7 @@ pub trait EntityBase: Send + Sync {
     }
 
     async fn read_nbt(&self, nbt: &NbtCompound) {
+        log::info!("read_nbt called");
         if let Some(living) = self.get_living_entity() {
             living.read_nbt(nbt).await;
         } else {
