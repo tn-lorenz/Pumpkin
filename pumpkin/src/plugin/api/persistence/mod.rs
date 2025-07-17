@@ -33,7 +33,7 @@ pub enum NamespacedKeyError {
 /// - `Err(NamespacedKeyError)` if either contains non-ASCII characters.
 impl NamespacedKey {
     #[allow(dead_code)]
-    pub(crate) fn new(namespace: &str, key: &str) -> Result<Self, NamespacedKeyError> {
+    pub fn new(namespace: &str, key: &str) -> Result<Self, NamespacedKeyError> {
         if !namespace.is_ascii() {
             #[cfg(debug_assertions)]
             log::error!("Invalid namespace: '{namespace}' contains non-ASCII characters.");
