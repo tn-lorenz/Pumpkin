@@ -68,7 +68,7 @@ impl std::fmt::Display for NamespacedKey {
 #[macro_export]
 macro_rules! ns_key {
     ($value:expr) => {
-        match $crate::plugin::NamespacedKey::new(env!("CARGO_PKG_NAME"), $value) {
+        match ::pumpkin::plugin::persistence::NamespacedKey::new(env!("CARGO_PKG_NAME"), $value) {
             Ok(key) => key,
             Err(e) => panic!("ns_key! macro failed: {:?}", e),
         }
