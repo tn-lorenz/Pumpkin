@@ -121,6 +121,8 @@ pub trait PersistentDataHolder {
     fn contains_key(&self, key: &NamespacedKey) -> bool;
     /// Returns an iterator over all key-value pairs in the container.
     fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_>;
+    /// Returns a mutable reference of the container
+    fn container_mut(&mut self) -> &mut PersistentDataContainer;
 }
 
 /// Trait to extract the inner value from a `PersistentDataType`.

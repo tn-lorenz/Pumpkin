@@ -472,6 +472,10 @@ pub fn derive_persistent(input: TokenStream) -> TokenStream {
             fn iter(&self) -> Box<dyn Iterator<Item = (NamespacedKey, PersistentDataType)> + '_> {
                 Box::new(self.#field.iter().map(|entry| (entry.key().clone(), entry.value().clone())))
             }
+
+            fn container_mut(&mut self) -> &mut PersistentDataContainer {
+                &mut self.#field
+            }
         }
     };
 

@@ -1,4 +1,4 @@
-use crate::plugin::persistence::nbt::from_pdc;
+use crate::plugin::persistence::nbt::{NbtCompoundExt, from_pdc};
 use crate::plugin::persistence::{
     FromPersistentDataType, NamespacedKey, PersistentDataContainer, PersistentDataHolder,
     PersistentDataType,
@@ -95,6 +95,9 @@ pub trait EntityBase: Send + Sync {
     }
 
     async fn read_nbt(&self, nbt: &NbtCompound) {
+        /* let container_mut = self.get_entity().container_mut();
+         *container_mut = nbt.to_pdc(); */
+
         if let Some(living) = self.get_living_entity() {
             living.read_nbt(nbt).await;
         } else {
