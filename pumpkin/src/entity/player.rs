@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use crossbeam::atomic::AtomicCell;
-use log::warn;
+use log::{info, log, warn};
 use pumpkin_world::chunk::{ChunkData, ChunkEntityData};
 use pumpkin_world::inventory::Inventory;
 use tokio::sync::{Mutex, RwLock};
@@ -76,6 +76,7 @@ use crate::command::dispatcher::CommandDispatcher;
 use crate::data::op_data::OPERATOR_CONFIG;
 use crate::net::PlayerConfig;
 use crate::net::{ClientPlatform, GameProfile};
+use crate::plugin::persistence::nbt::from_pdc;
 use crate::plugin::player::player_change_world::PlayerChangeWorldEvent;
 use crate::plugin::player::player_gamemode_change::PlayerGamemodeChangeEvent;
 use crate::plugin::player::player_teleport::PlayerTeleportEvent;
@@ -1838,6 +1839,8 @@ impl NBTStorage for Player {
     async fn write_nbt(&self, nbt: &mut NbtCompound) {
         self.living_entity.write_nbt(nbt).await;
         self.inventory.write_nbt(nbt).await;
+        let mut compound = from_pdc(&self.get_entity().container);
+        self.living_entity.write_nbt(&mut compound).await;
 
         self.abilities.lock().await.write_nbt(nbt).await;
 
