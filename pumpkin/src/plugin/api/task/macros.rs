@@ -19,7 +19,7 @@ macro_rules! run_task_later {
 
 #[macro_export]
 macro_rules! run_task_timer {
-    ($server:expr, $interval_ticks:expr, $body:block) => {{
+    ($server:expr, $interval_ticks:expr, $body:tt) => {{
         use async_trait::async_trait;
         use std::sync::{
             Arc,
@@ -38,6 +38,7 @@ macro_rules! run_task_timer {
                     self.cancel_flag.store(true, Ordering::Relaxed);
                 };
 
+                // Um explizit `cancel()` zuzulassen:
                 let cancel_ref = &cancel;
 
                 async move {
