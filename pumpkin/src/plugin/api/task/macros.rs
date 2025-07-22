@@ -15,7 +15,8 @@ macro_rules! run_task_later {
         }
 
         let handler = Arc::new(InlineHandler);
-        $server.task_scheduler.schedule_once($delay_ticks, handler);
+        let delay: u64 = $delay_ticks as u64;
+        $server.task_scheduler.schedule_once(delay, handler);
     }};
 }
 
