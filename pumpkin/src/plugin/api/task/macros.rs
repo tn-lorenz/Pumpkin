@@ -38,14 +38,11 @@ macro_rules! run_task_timer {
         impl TaskHandler for InlineHandler {
             async fn run(&self) {
                 let cancel_flag = self.cancel_flag.clone();
-
                 let cancel = || {
                     cancel_flag.store(true, Ordering::Relaxed);
                 };
 
-                async move {
-                    $($body)*
-                }.await;
+                $($body)*
             }
         }
 
@@ -58,3 +55,4 @@ macro_rules! run_task_timer {
             .schedule_repeating($interval_ticks as u64, handler)
     }};
 }
+
