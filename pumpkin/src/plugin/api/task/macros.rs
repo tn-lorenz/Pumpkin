@@ -2,7 +2,7 @@
 macro_rules! run_task_later {
     ($server:expr, $delay_ticks:expr, $body:block) => {{
         use std::sync::Arc;
-        use $crate::task::TaskHandler;
+        use $pumpkin::plugin::api::task::TaskHandler;
         use async_trait::async_trait;
 
         struct InlineHandler;
@@ -25,7 +25,7 @@ macro_rules! run_task_timer {
             Arc,
             atomic::{AtomicBool, Ordering},
         };
-        use $crate::task::TaskHandler;
+        use $pumpkin::plugin::api::task::TaskHandler;
 
         struct InlineHandler {
             cancel_flag: Arc<AtomicBool>,
