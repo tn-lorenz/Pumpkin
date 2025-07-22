@@ -25,23 +25,6 @@ pub struct CancelableHandler<T: TaskHandler> {
     cancel_tx: watch::Sender<bool>,
 }
 
-#[derive(Clone)]
-pub struct CancelHandle {
-    cancel_tx: watch::Sender<bool>,
-}
-
-impl CancelHandle {
-    pub fn cancel(&self) {
-        let _ = self.cancel_tx.send(true);
-    }
-}
-
-impl Drop for CancelHandle {
-    fn drop(&mut self) {
-        let _ = self.cancel_tx.send(true);
-    }
-}
-
 impl<T: TaskHandler> CancelableHandler<T> {
     pub fn new(inner: Arc<T>) -> Arc<Self> {
         let (tx, rx) = watch::channel(false);
@@ -50,12 +33,6 @@ impl<T: TaskHandler> CancelableHandler<T> {
             cancel_rx: Mutex::new(rx),
             cancel_tx: tx,
         })
-    }
-
-    pub fn cancel_handle(&self) -> CancelHandle {
-        CancelHandle {
-            cancel_tx: self.cancel_tx.clone(),
-        }
     }
 }
 

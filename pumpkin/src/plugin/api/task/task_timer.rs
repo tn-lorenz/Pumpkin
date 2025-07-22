@@ -35,17 +35,7 @@ macro_rules! run_task_timer {
 
         #[async_trait]
         impl TaskHandler for InlineHandler {
-            async fn run(&self) {}
-        }
-
-        #[async_trait]
-        impl TaskHandler for CancelableHandler<InlineHandler> {
-            async fn run(&self) {
-                let this = self.clone();
-                let self = this;
-
-                $body
-            }
+            async fn run(&self) $body
         }
 
         let base = Arc::new(InlineHandler);
