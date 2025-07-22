@@ -1,9 +1,7 @@
-pub mod task_later;
-pub mod task_timer;
+pub mod macros;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 #[async_trait::async_trait]
 pub trait TaskHandler: Send + Sync + 'static {
@@ -12,11 +10,11 @@ pub trait TaskHandler: Send + Sync + 'static {
 
 pub enum ScheduledTaskType {
     Later {
-        run_at: Instant,
+        run_at_tick: u64,
     },
     Timer {
-        interval: Duration,
-        next_run: Instant,
+        interval_ticks: u64,
+        next_run_tick: u64,
     },
 }
 
@@ -28,6 +26,7 @@ pub struct ScheduledTask {
 
 pub struct TaskScheduler {
     tasks: Mutex<Vec<ScheduledTask>>,
+    tick_count: std::sync::atomic::AtomicU64,
 }
 
 impl TaskScheduler {
@@ -35,13 +34,15 @@ impl TaskScheduler {
     pub fn new() -> Self {
         Self {
             tasks: Mutex::new(Vec::new()),
+            tick_count: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
-    pub fn schedule_once(&self, delay: Duration, handler: Arc<dyn TaskHandler>) {
+    pub fn schedule_once(&self, delay_ticks: u64, handler: Arc<dyn TaskHandler>) {
+        let current_tick = self.tick_count.load(Ordering::Relaxed);
         self.tasks.lock().unwrap().push(ScheduledTask {
             task_type: ScheduledTaskType::Later {
-                run_at: Instant::now() + delay,
+                run_at_tick: current_tick + delay_ticks,
             },
             handler,
             cancel_flag: Arc::new(AtomicBool::new(false)),
@@ -50,14 +51,15 @@ impl TaskScheduler {
 
     pub fn schedule_repeating(
         &self,
-        interval: Duration,
+        interval_ticks: u64,
         handler: Arc<dyn TaskHandler>,
     ) -> Arc<AtomicBool> {
+        let current_tick = self.tick_count.load(Ordering::Relaxed);
         let cancel_flag = Arc::new(AtomicBool::new(false));
         self.tasks.lock().unwrap().push(ScheduledTask {
             task_type: ScheduledTaskType::Timer {
-                interval,
-                next_run: Instant::now() + interval,
+                interval_ticks,
+                next_run_tick: current_tick + interval_ticks,
             },
             handler,
             cancel_flag: cancel_flag.clone(),
@@ -66,7 +68,8 @@ impl TaskScheduler {
     }
 
     pub fn tick(&self) {
-        let now = Instant::now();
+        let current_tick = self.tick_count.fetch_add(1, Ordering::Relaxed) + 1;
+
         let mut tasks = self.tasks.lock().unwrap();
 
         tasks.retain_mut(|task| {
@@ -75,8 +78,8 @@ impl TaskScheduler {
             }
 
             match &mut task.task_type {
-                ScheduledTaskType::Later { run_at } => {
-                    if *run_at <= now {
+                ScheduledTaskType::Later { run_at_tick } => {
+                    if *run_at_tick <= current_tick {
                         let handler = task.handler.clone();
                         tokio::spawn(async move {
                             handler.run().await;
@@ -86,9 +89,12 @@ impl TaskScheduler {
                         true
                     }
                 }
-                ScheduledTaskType::Timer { interval, next_run } => {
-                    if *next_run <= now {
-                        *next_run = now + *interval;
+                ScheduledTaskType::Timer {
+                    interval_ticks,
+                    next_run_tick,
+                } => {
+                    if *next_run_tick <= current_tick {
+                        *next_run_tick = current_tick + *interval_ticks;
                         let handler = task.handler.clone();
                         tokio::spawn(async move {
                             handler.run().await;

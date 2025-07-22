@@ -1,6 +1,25 @@
 #[macro_export]
+macro_rules! run_task_later {
+    ($server:expr, $delay_ticks:expr, $body:block) => {{
+        use std::sync::Arc;
+        use $crate::task::TaskHandler;
+        use async_trait::async_trait;
+
+        struct InlineHandler;
+
+        #[async_trait]
+        impl TaskHandler for InlineHandler {
+            async fn run(&self) $body
+        }
+
+        let handler = Arc::new(InlineHandler);
+        $server.task_scheduler.schedule_once($delay_ticks, handler);
+    }};
+}
+
+#[macro_export]
 macro_rules! run_task_timer {
-    ($server:expr, $interval:expr, $body:block) => {{
+    ($server:expr, $interval_ticks:expr, $body:block) => {{
         use async_trait::async_trait;
         use std::sync::{
             Arc,
@@ -15,16 +34,6 @@ macro_rules! run_task_timer {
         #[async_trait]
         impl TaskHandler for InlineHandler {
             async fn run(&self) {
-                let cancel_flag = self.cancel_flag.clone();
-
-                fn make_cancel(cancel_flag: Arc<AtomicBool>) -> impl Fn() {
-                    move || {
-                        cancel_flag.store(true, Ordering::Relaxed);
-                    }
-                }
-
-                let cancel = make_cancel(cancel_flag.clone());
-
                 $body
             }
         }
@@ -33,11 +42,8 @@ macro_rules! run_task_timer {
             cancel_flag: Arc::new(AtomicBool::new(false)),
         });
 
-        let cancel_flag = handler.cancel_flag.clone();
         $server
             .task_scheduler
-            .schedule_repeating($interval, handler);
-
-        cancel_flag
+            .schedule_repeating($interval_ticks, handler)
     }};
 }
