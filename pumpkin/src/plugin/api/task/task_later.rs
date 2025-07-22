@@ -14,9 +14,9 @@ where
 
 #[macro_export]
 macro_rules! run_task_later {
-    ($delay:expr, $body:block) => {{
+    ($server:expr, $delay:expr, $body:block) => {{
         use std::sync::Arc;
-        use $crate::task::{run_task_later, TaskHandler};
+        use $crate::task::TaskHandler;
         use async_trait::async_trait;
 
         struct InlineHandler;
@@ -27,7 +27,6 @@ macro_rules! run_task_later {
         }
 
         let handler = Arc::new(InlineHandler);
-
-        $crate::TOKIO_RUNTIME.spawn(run_task_later($delay, handler));
+        $server.task_scheduler.schedule_once($delay, handler);
     }};
 }

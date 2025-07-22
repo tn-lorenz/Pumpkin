@@ -1,46 +1,43 @@
-use crate::plugin::task::{Cancelable, TOKIO_RUNTIME, TaskHandler};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::sleep;
-
-pub fn start_loop<H>(delay: Duration, handler: Arc<H>)
-where
-    H: TaskHandler + Cancelable + 'static,
-{
-    TOKIO_RUNTIME.spawn(run_task_timer(delay, handler));
-}
-
-async fn run_task_timer<H>(delay: Duration, handler: Arc<H>)
-where
-    H: TaskHandler + Cancelable + 'static,
-{
-    loop {
-        sleep(delay).await;
-        handler.run().await;
-
-        if handler.should_cancel().await {
-            break;
-        }
-    }
-}
-
 #[macro_export]
 macro_rules! run_task_timer {
-    ($delay:expr, $body:block) => {{
+    ($server:expr, $interval:expr, $body:block) => {{
         use async_trait::async_trait;
-        use std::sync::Arc;
-        use $crate::task::{CancelableHandler, TaskHandler, start_loop};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use $crate::task::TaskHandler;
 
-        struct InlineHandler;
+        struct InlineHandler {
+            cancel_flag: Arc<AtomicBool>,
+        }
 
         #[async_trait]
         impl TaskHandler for InlineHandler {
-            async fn run(&self) $body
+            async fn run(&self) {
+                let cancel_flag = self.cancel_flag.clone();
+
+                fn make_cancel(cancel_flag: Arc<AtomicBool>) -> impl Fn() {
+                    move || {
+                        cancel_flag.store(true, Ordering::Relaxed);
+                    }
+                }
+
+                let cancel = make_cancel(cancel_flag.clone());
+
+                $body
+            }
         }
 
-        let base = Arc::new(InlineHandler);
-        let handler = CancelableHandler::new(base);
-        start_loop($delay, handler.clone());
-        handler
+        let handler = Arc::new(InlineHandler {
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+        });
+
+        let cancel_flag = handler.cancel_flag.clone();
+        $server
+            .task_scheduler
+            .schedule_repeating($interval, handler);
+
+        cancel_flag
     }};
 }

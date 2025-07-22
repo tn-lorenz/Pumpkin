@@ -1,56 +1,109 @@
 pub mod task_later;
 pub mod task_timer;
 
-use std::sync::{Arc, LazyLock, Mutex};
-use tokio::runtime::Runtime;
-use tokio::sync::watch;
-
-pub static TOKIO_RUNTIME: LazyLock<Runtime> =
-    LazyLock::new(|| Runtime::new().expect("Failed to create global Tokio Runtime"));
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[async_trait::async_trait]
-pub trait TaskHandler: Send + Sync {
+pub trait TaskHandler: Send + Sync + 'static {
     async fn run(&self);
 }
 
-#[async_trait::async_trait]
-pub trait Cancelable: Send + Sync {
-    async fn cancel(&self);
-    async fn should_cancel(&self) -> bool;
+pub enum ScheduledTaskType {
+    Later {
+        run_at: Instant,
+    },
+    Timer {
+        interval: Duration,
+        next_run: Instant,
+    },
 }
 
-pub struct CancelableHandler<T: TaskHandler> {
-    inner: Arc<T>,
-    cancel_rx: Mutex<watch::Receiver<bool>>,
-    cancel_tx: watch::Sender<bool>,
+pub struct ScheduledTask {
+    pub task_type: ScheduledTaskType,
+    pub handler: Arc<dyn TaskHandler>,
+    pub cancel_flag: Arc<AtomicBool>,
 }
 
-impl<T: TaskHandler> CancelableHandler<T> {
-    pub fn new(inner: Arc<T>) -> Arc<Self> {
-        let (tx, rx) = watch::channel(false);
-        Arc::new(Self {
-            inner,
-            cancel_rx: Mutex::new(rx),
-            cancel_tx: tx,
-        })
+pub struct TaskScheduler {
+    tasks: Mutex<Vec<ScheduledTask>>,
+}
+
+impl TaskScheduler {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            tasks: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn schedule_once(&self, delay: Duration, handler: Arc<dyn TaskHandler>) {
+        self.tasks.lock().unwrap().push(ScheduledTask {
+            task_type: ScheduledTaskType::Later {
+                run_at: Instant::now() + delay,
+            },
+            handler,
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+        });
+    }
+
+    pub fn schedule_repeating(
+        &self,
+        interval: Duration,
+        handler: Arc<dyn TaskHandler>,
+    ) -> Arc<AtomicBool> {
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        self.tasks.lock().unwrap().push(ScheduledTask {
+            task_type: ScheduledTaskType::Timer {
+                interval,
+                next_run: Instant::now() + interval,
+            },
+            handler,
+            cancel_flag: cancel_flag.clone(),
+        });
+        cancel_flag
+    }
+
+    pub fn tick(&self) {
+        let now = Instant::now();
+        let mut tasks = self.tasks.lock().unwrap();
+
+        tasks.retain_mut(|task| {
+            if task.cancel_flag.load(Ordering::Relaxed) {
+                return false;
+            }
+
+            match &mut task.task_type {
+                ScheduledTaskType::Later { run_at } => {
+                    if *run_at <= now {
+                        let handler = task.handler.clone();
+                        tokio::spawn(async move {
+                            handler.run().await;
+                        });
+                        false
+                    } else {
+                        true
+                    }
+                }
+                ScheduledTaskType::Timer { interval, next_run } => {
+                    if *next_run <= now {
+                        *next_run = now + *interval;
+                        let handler = task.handler.clone();
+                        tokio::spawn(async move {
+                            handler.run().await;
+                        });
+                    }
+                    true
+                }
+            }
+        });
     }
 }
 
-#[async_trait::async_trait]
-impl<T: TaskHandler> TaskHandler for CancelableHandler<T> {
-    async fn run(&self) {
-        self.inner.run().await;
+impl Default for TaskScheduler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-#[async_trait::async_trait]
-impl<T: TaskHandler> Cancelable for CancelableHandler<T> {
-    async fn cancel(&self) {
-        let _ = self.cancel_tx.send(true);
-    }
-
-    async fn should_cancel(&self) -> bool {
-        let rx = self.cancel_rx.lock().unwrap();
-        rx.has_changed().unwrap_or(false) && *rx.borrow()
-    }
-}
