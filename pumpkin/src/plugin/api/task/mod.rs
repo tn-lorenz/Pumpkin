@@ -1,7 +1,7 @@
 pub mod task_later;
 pub mod task_timer;
 
-use std::sync::{Arc, Mutex, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
 
