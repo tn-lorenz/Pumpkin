@@ -46,8 +46,7 @@ macro_rules! run_task_timer {
                 async move {
                     let cancel = &cancel;
                     $($body)*
-                }
-                .await;
+                }.await;
             }
         }
 
@@ -57,6 +56,7 @@ macro_rules! run_task_timer {
 
         $server
             .task_scheduler
-            .schedule_repeating($interval_ticks, handler)
+            .schedule_repeating($interval_ticks as u64, handler)
     }};
 }
+
