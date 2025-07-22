@@ -2,14 +2,16 @@
 macro_rules! run_task_later {
     ($server:expr, $delay_ticks:expr, $body:block) => {{
         use std::sync::Arc;
-        use $pumpkin::plugin::api::task::TaskHandler;
+        use pumpkin::task::TaskHandler;
         use async_trait::async_trait;
 
         struct InlineHandler;
 
         #[async_trait]
         impl TaskHandler for InlineHandler {
-            async fn run(&self) $body
+            async fn run(&self) {
+                $body
+            }
         }
 
         let handler = Arc::new(InlineHandler);
