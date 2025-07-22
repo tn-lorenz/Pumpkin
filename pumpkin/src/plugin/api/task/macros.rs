@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! run_task_later {
-    ($server:expr, $delay_ticks:expr, $body:block) => {{
+    ($server:expr, $delay_ticks:expr, $($body:tt)*) => {{
         use async_trait::async_trait;
         use pumpkin::plugin::api::task::TaskHandler;
         use std::sync::Arc;
@@ -10,7 +10,7 @@ macro_rules! run_task_later {
         #[async_trait]
         impl TaskHandler for InlineHandler {
             async fn run(&self) {
-                $body
+                $($body)*
             }
         }
 
@@ -38,11 +38,18 @@ macro_rules! run_task_timer {
         impl TaskHandler for InlineHandler {
             async fn run(&self) {
                 let cancel_flag = self.cancel_flag.clone();
+
                 let cancel = || {
                     cancel_flag.store(true, Ordering::Relaxed);
                 };
 
-                $($body)*
+                if cancel_flag.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                {
+                    $($body)*
+                }
             }
         }
 
@@ -52,7 +59,6 @@ macro_rules! run_task_timer {
 
         $server
             .task_scheduler
-            .schedule_repeating($interval_ticks as u64, handler)
+            .schedule_repeating($interval_ticks as u64, handler);
     }};
 }
-
