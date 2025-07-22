@@ -38,7 +38,6 @@ macro_rules! run_task_timer {
                     self.cancel_flag.store(true, Ordering::Relaxed);
                 };
 
-                // Um explizit `cancel()` zuzulassen:
                 let cancel_ref = &cancel;
 
                 async move {
