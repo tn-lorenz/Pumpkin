@@ -71,7 +71,10 @@ macro_rules! run_task_timer {
         struct InlineHandler {
             cancel_flag: Arc<AtomicBool>,
             closure: Box<
-                dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                dyn Fn(
+                        Box<dyn Fn() + Send + Sync>,
+                    )
+                        -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
                     + Send
                     + Sync,
             >,
@@ -85,11 +88,12 @@ macro_rules! run_task_timer {
                 }
 
                 let cancel_flag = self.cancel_flag.clone();
-                let cancel = || {
-                    cancel_flag.store(true, Ordering::Relaxed);
-                };
 
-                (self.closure)().await;
+                let cancel = Box::new(move || {
+                    cancel_flag.store(true, Ordering::Relaxed);
+                });
+
+                (self.closure)(cancel).await;
             }
         }
 
@@ -97,15 +101,7 @@ macro_rules! run_task_timer {
 
         let closure = {
             let cancel_flag = cancel_flag.clone();
-            Box::new(move || {
-                let cancel = || cancel_flag.store(true, Ordering::Relaxed);
-                Box::pin(({ $closure })())
-            })
-                as Box<
-                    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-                        + Send
-                        + Sync,
-                >
+            Box::new(move |cancel: Box<dyn Fn() + Send + Sync>| Box::pin($closure(cancel)))
         };
 
         let handler = Arc::new(InlineHandler {
