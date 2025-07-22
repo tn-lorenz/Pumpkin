@@ -1,77 +1,79 @@
-use std::sync::Arc;
-use tokio::runtime::Runtime;
-use tokio::time::{Duration, sleep};
-use once_cell::sync::Lazy;
+pub mod task_later;
+pub mod task_timer;
 
-pub static TOKIO_RUNTIME: Lazy<Runtime> =
-    Lazy::new(|| Runtime::new().expect("Failed to create global Tokio Runtime"));
+use std::sync::{Arc, Mutex, LazyLock};
+use tokio::runtime::Runtime;
+use tokio::sync::watch;
+
+pub static TOKIO_RUNTIME: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new().expect("Failed to create global Tokio Runtime"));
 
 #[async_trait::async_trait]
 pub trait TaskHandler: Send + Sync {
     async fn run(&self);
+}
+
+#[async_trait::async_trait]
+pub trait Cancelable: Send + Sync {
     async fn cancel(&self);
+    async fn should_cancel(&self) -> bool;
 }
 
-pub fn start_loop<H>(delay: Duration, handler: Arc<H>)
-where
-    H: TaskHandler + 'static,
-{
-    TOKIO_RUNTIME.spawn(run_task_timer(delay, handler));
+pub struct CancelableHandler<T: TaskHandler> {
+    inner: Arc<T>,
+    cancel_rx: Mutex<watch::Receiver<bool>>,
+    cancel_tx: watch::Sender<bool>,
 }
 
-async fn run_task_timer<H>(delay: Duration, handler: Arc<H>)
-where
-    H: TaskHandler + 'static,
-{
-    loop {
-        sleep(delay).await;
-        handler.run().await;
+#[derive(Clone)]
+pub struct CancelHandle {
+    cancel_tx: watch::Sender<bool>,
+}
+
+impl CancelHandle {
+    pub fn cancel(&self) {
+        let _ = self.cancel_tx.send(true);
     }
 }
 
-async fn run_task_later<H>(delay: Duration, handler: Arc<H>)
-where
-    H: TaskHandler + 'static,
-{
-    sleep(delay).await;
-    handler.run().await;
+impl Drop for CancelHandle {
+    fn drop(&mut self) {
+        let _ = self.cancel_tx.send(true);
+    }
 }
 
-#[macro_export]
-macro_rules! run_task_timer {
-    ($delay:expr, $body:block) => {{
-        use std::sync::Arc;
-        use $crate::task::{start_loop, TaskHandler};
+impl<T: TaskHandler> CancelableHandler<T> {
+    pub fn new(inner: Arc<T>) -> Arc<Self> {
+        let (tx, rx) = watch::channel(false);
+        Arc::new(Self {
+            inner,
+            cancel_rx: Mutex::new(rx),
+            cancel_tx: tx,
+        })
+    }
 
-        struct InlineHandler;
-
-        #[async_trait::async_trait]
-        impl TaskHandler for InlineHandler {
-            async fn run(&self) $body
+    pub fn cancel_handle(&self) -> CancelHandle {
+        CancelHandle {
+            cancel_tx: self.cancel_tx.clone(),
         }
-
-        let handler = Arc::new(InlineHandler);
-        start_loop($delay, handler);
-    }};
+    }
 }
 
-#[macro_export]
-macro_rules! run_task_later {
-    ($delay:expr, $body:block) => {{
-        use std::sync::Arc;
-        use $crate::task::{run_task_later, TaskHandler};
-        use async_trait::async_trait;
-
-        struct InlineHandler;
-
-        #[async_trait]
-        impl TaskHandler for InlineHandler {
-            async fn run(&self) $body
-        }
-
-        let handler = Arc::new(InlineHandler);
-
-        $crate::TOKIO_RUNTIME.spawn(run_task_later($delay, handler));
-    }};
+#[async_trait::async_trait]
+impl<T: TaskHandler> TaskHandler for CancelableHandler<T> {
+    async fn run(&self) {
+        self.inner.run().await;
+    }
 }
 
+#[async_trait::async_trait]
+impl<T: TaskHandler> Cancelable for CancelableHandler<T> {
+    async fn cancel(&self) {
+        let _ = self.cancel_tx.send(true);
+    }
+
+    async fn should_cancel(&self) -> bool {
+        let rx = self.cancel_rx.lock().unwrap();
+        rx.has_changed().unwrap_or(false) && *rx.borrow()
+    }
+}

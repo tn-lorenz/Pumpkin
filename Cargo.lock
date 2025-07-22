@@ -2018,8 +2018,6 @@ dependencies = [
  "libloading",
  "log",
  "num-bigint",
- "once_cell",
- "png",
  "pumpkin-config",
  "pumpkin-data",
  "pumpkin-inventory",
