@@ -1,10 +1,15 @@
+pub mod anvil;
 pub mod bamboo;
 pub mod barrel;
 pub mod bed;
 pub mod cactus;
+pub mod cake;
 pub mod campfire;
+pub mod candle_cakes;
+pub mod candles;
 pub mod carpet;
-pub mod chest;
+pub mod chests;
+pub mod chiseled_bookshelf;
 pub mod command;
 pub mod composter;
 pub mod crafting_table;
@@ -16,8 +21,10 @@ pub mod farmland;
 pub mod fence_gates;
 pub mod fences;
 pub mod fire;
+pub mod flower_pots;
 pub mod furnace;
 pub mod glass_panes;
+pub mod glazed_terracotta;
 pub mod grindstone;
 pub mod iron_bars;
 pub mod jukebox;
@@ -28,7 +35,6 @@ pub mod piston;
 pub mod plant;
 pub mod pumpkin;
 pub mod redstone;
-pub mod sea_pickles;
 pub mod signs;
 pub mod skull_block;
 pub mod slabs;
@@ -40,5 +46,14 @@ pub mod trapdoor;
 pub mod vine;
 pub mod walls;
 
+pub mod banners;
+
+pub mod blast_furnace;
+
+pub mod smoker;
+
+pub mod ender_chest;
+
 // abstruct
 pub mod abstruct_wall_mounting;
+pub mod lectern;

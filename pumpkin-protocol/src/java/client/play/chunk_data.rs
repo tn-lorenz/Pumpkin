@@ -19,7 +19,7 @@ impl ClientPacket for CChunkData<'_> {
         // Chunk X
         write.write_i32_be(self.0.position.x)?;
         // Chunk Z
-        write.write_i32_be(self.0.position.z)?;
+        write.write_i32_be(self.0.position.y)?;
 
         let heightmaps = &self.0.heightmap;
         // the heighmap is a map, we put 3 values in so the size is 3
@@ -56,7 +56,7 @@ impl ClientPacket for CChunkData<'_> {
 
                 // This is a bit messy, but we dont have access to VarInt in pumpkin-world
                 let network_repr = section.block_states.convert_network();
-                blocks_and_biomes_buf.write_u8_be(network_repr.bits_per_entry)?;
+                blocks_and_biomes_buf.write_u8(network_repr.bits_per_entry)?;
                 match network_repr.palette {
                     NetworkPalette::Single(registry_id) => {
                         blocks_and_biomes_buf.write_var_int(&registry_id.into())?;
@@ -82,7 +82,7 @@ impl ClientPacket for CChunkData<'_> {
                 }
 
                 let network_repr = section.biomes.convert_network();
-                blocks_and_biomes_buf.write_u8_be(network_repr.bits_per_entry)?;
+                blocks_and_biomes_buf.write_u8(network_repr.bits_per_entry)?;
                 match network_repr.palette {
                     NetworkPalette::Single(registry_id) => {
                         blocks_and_biomes_buf.write_var_int(&registry_id.into())?;
@@ -121,18 +121,18 @@ impl ClientPacket for CChunkData<'_> {
         // TODO: block entities
         write.write_var_int(&VarInt(self.0.block_entities.len() as i32))?;
         for block_entity in self.0.block_entities.values() {
-            let block_entity = &block_entity.1;
+            let block_entity = &block_entity;
             let chunk_data_nbt = block_entity.chunk_data_nbt();
             let pos = block_entity.get_position();
             let block_entity_id = block_entity.get_id();
             let local_xz = (get_local_cord(pos.0.x) << 4) | get_local_cord(pos.0.z);
-            write.write_u8_be(local_xz as u8)?;
+            write.write_u8(local_xz as u8)?;
             write.write_i16_be(pos.0.y as i16)?;
             write.write_var_int(&VarInt(block_entity_id as i32))?;
             if let Some(chunk_data_nbt) = chunk_data_nbt {
                 write.write_nbt(&chunk_data_nbt.into())?;
             } else {
-                write.write_u8_be(END_ID)?;
+                write.write_u8(END_ID)?;
             }
         }
 

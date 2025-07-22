@@ -43,6 +43,7 @@ use tokio::sync::{Mutex, RwLock};
 use crate::world::World;
 
 pub mod ai;
+pub mod decoration;
 pub mod effect;
 pub mod experience_orb;
 pub mod hunger;
@@ -174,6 +175,9 @@ pub struct Entity {
     pub portal_cooldown: AtomicU32,
 
     pub portal_manager: Mutex<Option<Mutex<PortalManager>>>,
+
+    /// The data send in the Entity Spawn packet
+    pub data: AtomicI32,
 }
 
 impl Entity {
@@ -221,6 +225,7 @@ impl Entity {
             bounding_box_size: AtomicCell::new(bounding_box_size),
             invulnerable: AtomicBool::new(invulnerable),
             damage_immunities: Vec::new(),
+            data: AtomicI32::new(0),
             fire_ticks: AtomicI32::new(-1),
             has_visual_fire: AtomicBool::new(false),
             portal_cooldown: AtomicU32::new(0),
@@ -266,7 +271,7 @@ impl Entity {
 
                 let chunk_pos = self.chunk_pos.load();
                 if get_section_cord(floor_x) != chunk_pos.x
-                    || get_section_cord(floor_z) != chunk_pos.z
+                    || get_section_cord(floor_z) != chunk_pos.y
                 {
                     self.chunk_pos.store(Vector2::new(
                         get_section_cord(new_block_pos.x),
@@ -439,7 +444,7 @@ impl Entity {
             self.pitch.load(),
             self.yaw.load(),
             self.head_yaw.load(), // todo: head_yaw and yaw are swapped, find out why
-            0.into(),
+            self.data.load(Relaxed).into(),
             entity_vel,
         )
     }
@@ -528,6 +533,27 @@ impl Entity {
             13 => Integer0To15::L13,
             14 => Integer0To15::L14,
             _ => Integer0To15::L15,
+        }
+    }
+
+    pub fn get_flipped_rotation_16(&self) -> Integer0To15 {
+        match self.get_rotation_16() {
+            Integer0To15::L0 => Integer0To15::L8,
+            Integer0To15::L1 => Integer0To15::L9,
+            Integer0To15::L2 => Integer0To15::L10,
+            Integer0To15::L3 => Integer0To15::L11,
+            Integer0To15::L4 => Integer0To15::L12,
+            Integer0To15::L5 => Integer0To15::L13,
+            Integer0To15::L6 => Integer0To15::L14,
+            Integer0To15::L7 => Integer0To15::L15,
+            Integer0To15::L8 => Integer0To15::L0,
+            Integer0To15::L9 => Integer0To15::L1,
+            Integer0To15::L10 => Integer0To15::L2,
+            Integer0To15::L11 => Integer0To15::L3,
+            Integer0To15::L12 => Integer0To15::L4,
+            Integer0To15::L13 => Integer0To15::L5,
+            Integer0To15::L14 => Integer0To15::L6,
+            Integer0To15::L15 => Integer0To15::L7,
         }
     }
 
@@ -725,12 +751,12 @@ impl Entity {
                         if outlines.is_empty() {
                             world
                                 .block_registry
-                                .on_entity_collision(block, &world, entity, pos, state, server)
+                                .on_entity_collision(block, &world, entity, &pos, state, server)
                                 .await;
                             let fluid = world.get_fluid(&pos).await;
                             world
                                 .block_registry
-                                .on_entity_collision_fluid(&fluid, entity)
+                                .on_entity_collision_fluid(fluid, entity)
                                 .await;
                             continue;
                         }
@@ -739,12 +765,12 @@ impl Entity {
                             if outline_aabb.intersects(&aabb) {
                                 world
                                     .block_registry
-                                    .on_entity_collision(block, &world, entity, pos, state, server)
+                                    .on_entity_collision(block, &world, entity, &pos, state, server)
                                     .await;
                                 let fluid = world.get_fluid(&pos).await;
                                 world
                                     .block_registry
-                                    .on_entity_collision_fluid(&fluid, entity)
+                                    .on_entity_collision_fluid(fluid, entity)
                                     .await;
                                 break;
                             }
@@ -752,12 +778,12 @@ impl Entity {
                     } else {
                         world
                             .block_registry
-                            .on_entity_collision(block, &world, entity, pos, state, server)
+                            .on_entity_collision(block, &world, entity, &pos, state, server)
                             .await;
                         let fluid = world.get_fluid(&pos).await;
                         world
                             .block_registry
-                            .on_entity_collision_fluid(&fluid, entity)
+                            .on_entity_collision_fluid(fluid, entity)
                             .await;
                     }
                 }

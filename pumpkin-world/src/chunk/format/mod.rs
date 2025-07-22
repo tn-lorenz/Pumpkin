@@ -127,10 +127,10 @@ impl ChunkData {
             }
         }
 
-        if chunk_data.x_pos != position.x || chunk_data.z_pos != position.z {
+        if chunk_data.x_pos != position.x || chunk_data.z_pos != position.y {
             return Err(ChunkParsingError::ErrorDeserializingChunk(format!(
                 "Expected data for chunk {},{} but got it for {},{}!",
-                position.x, position.z, chunk_data.x_pos, chunk_data.z_pos,
+                position.x, position.y, chunk_data.x_pos, chunk_data.z_pos,
             )));
         }
 
@@ -198,7 +198,7 @@ impl ChunkData {
                             .strip_prefix("minecraft:")
                             .unwrap_or(&tick.target_block),
                     )
-                    .unwrap_or(Block::AIR)
+                    .unwrap_or(&Block::AIR)
                     .id,
                 })
                 .collect(),
@@ -214,7 +214,7 @@ impl ChunkData {
                             .strip_prefix("minecraft:")
                             .unwrap_or(&tick.target_block),
                     )
-                    .unwrap_or(Block::AIR)
+                    .unwrap_or(&Block::AIR)
                     .id,
                 })
                 .collect(),
@@ -223,7 +223,7 @@ impl ChunkData {
                 for nbt in chunk_data.block_entities {
                     let block_entity = block_entity_from_nbt(&nbt);
                     if let Some(block_entity) = block_entity {
-                        block_entities.insert(block_entity.get_position(), (nbt, block_entity));
+                        block_entities.insert(block_entity.get_position(), block_entity);
                     }
                 }
                 block_entities
@@ -263,7 +263,7 @@ impl ChunkData {
         let nbt = ChunkNbt {
             data_version: WORLD_DATA_VERSION,
             x_pos: self.position.x,
-            z_pos: self.position.z,
+            z_pos: self.position.y,
             min_y_section: section_coords::block_to_section(self.section.min_y),
             status: ChunkStatus::Full,
             heightmaps: self.heightmap.clone(),
@@ -279,7 +279,7 @@ impl ChunkData {
                         priority: tick.priority as i32,
                         target_block: format!(
                             "minecraft:{}",
-                            Block::from_id(tick.target_block_id).unwrap().name
+                            Block::from_id(tick.target_block_id).name
                         ),
                     })
                     .collect()
@@ -295,14 +295,14 @@ impl ChunkData {
                         priority: tick.priority as i32,
                         target_block: format!(
                             "minecraft:{}",
-                            Block::from_id(tick.target_block_id).unwrap().name
+                            Block::from_id(tick.target_block_id).name
                         ),
                     })
                     .collect()
             },
             block_entities: join_all(self.block_entities.values().map(|block_entity| async move {
                 let mut nbt = NbtCompound::new();
-                block_entity.1.write_internal(&mut nbt).await;
+                block_entity.write_internal(&mut nbt).await;
                 nbt
             }))
             .await,
@@ -363,12 +363,12 @@ impl ChunkEntityData {
             .map_err(|e| ChunkParsingError::ErrorDeserializingChunk(e.to_string()))?;
 
         if chunk_entity_data.position[0] != position.x
-            || chunk_entity_data.position[1] != position.z
+            || chunk_entity_data.position[1] != position.y
         {
             return Err(ChunkParsingError::ErrorDeserializingChunk(format!(
                 "Expected data for entity chunk {},{} but got it for {},{}!",
                 position.x,
-                position.z,
+                position.y,
                 chunk_entity_data.position[0],
                 chunk_entity_data.position[1],
             )));
@@ -403,7 +403,7 @@ impl ChunkEntityData {
     fn internal_to_bytes(&self) -> Result<Bytes, ChunkSerializingError> {
         let nbt = EntityNbt {
             data_version: WORLD_DATA_VERSION,
-            position: [self.chunk_position.x, self.chunk_position.z],
+            position: [self.chunk_position.x, self.chunk_position.y],
             entities: self.data.values().cloned().collect(),
         };
 
