@@ -605,6 +605,7 @@ impl Server {
         // Only run world/game logic if the tick rate manager allows it
         if self.tick_rate_manager.runs_normally() || self.tick_rate_manager.is_sprinting() {
             self.tick_worlds().await;
+            self.task_scheduler.tick();
         }
     }
 
