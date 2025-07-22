@@ -34,7 +34,18 @@ macro_rules! run_task_timer {
         #[async_trait]
         impl TaskHandler for InlineHandler {
             async fn run(&self) {
-                $body
+                let cancel = || {
+                    self.cancel_flag.store(true, Ordering::Relaxed);
+                };
+
+                let cancel_ref = &cancel;
+
+                async move {
+                    #[allow(unused_variables)]
+                    let cancel = cancel_ref;
+                    $body
+                }
+                .await;
             }
         }
 
