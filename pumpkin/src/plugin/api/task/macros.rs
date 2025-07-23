@@ -13,7 +13,7 @@ macro_rules! run_task_later {
         struct InlineHandler {
             cancel_flag: Arc<AtomicBool>,
             closure: Box<
-                dyn for<'a> Fn(&'a dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
+                dyn for<'task> Fn(&'task dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
                     + Send
                     + Sync,
             >,
@@ -38,14 +38,13 @@ macro_rules! run_task_later {
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let closure = {
             Box::new(move |cancel: &dyn Fn()| {
-                let cancel = cancel as &dyn Fn();
                 Box::pin(async move {
                     let cancel = cancel;
                     $body
                 })
             })
                 as Box<
-                    dyn for<'a> Fn(&'a dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
+                    dyn for<'task> Fn(&'task dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
                         + Send
                         + Sync,
                 >
@@ -76,7 +75,7 @@ macro_rules! run_task_timer {
         struct InlineHandler {
             cancel_flag: Arc<AtomicBool>,
             closure: Box<
-                dyn for<'a> Fn(&'a dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
+                dyn for<'task> Fn(&'task dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
                     + Send
                     + Sync,
             >,
@@ -101,14 +100,13 @@ macro_rules! run_task_timer {
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let closure = {
             Box::new(move |cancel: &dyn Fn()| {
-                let cancel = cancel as &dyn Fn();
                 Box::pin(async move {
                     let cancel = cancel;
                     $body
                 })
             })
                 as Box<
-                    dyn for<'a> Fn(&'a dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
+                    dyn for<'task> Fn(&'task dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
                         + Send
                         + Sync,
                 >
