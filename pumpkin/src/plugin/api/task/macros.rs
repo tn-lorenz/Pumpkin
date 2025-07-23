@@ -51,7 +51,7 @@ macro_rules! run_task_later {
 #[macro_export]
 macro_rules! run_task_timer {
     ($server:expr, $interval_ticks:expr, $body:block) => {{
-        use pumpkin::plugin::api::Server;
+        use pumpkin::server::Server;
         use std::sync::Arc;
 
         fn schedule_next(server: Arc<Server>, interval: u64, task: Arc<dyn Fn() + Send + Sync>) {
@@ -71,7 +71,7 @@ macro_rules! run_task_timer {
                 let server = Arc::clone(&server);
                 let task = Arc::clone(&task_ref_clone.lock().unwrap().as_ref().unwrap());
 
-                run_task_later_once!(server.clone(), 0, $body);
+                run_task_later!(server.clone(), 0, $body);
                 schedule_next(server, $interval_ticks as u64, task);
             })
         };
