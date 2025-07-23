@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! run_task_later {
-    ($server:expr, $delay_ticks:expr, $future:expr) => {{
+    ($server:expr, $delay_ticks:expr, $body:expr) => {{
         use async_trait::async_trait;
         use pumpkin::plugin::api::task::TaskHandler;
         use std::future::Future;
@@ -34,16 +34,50 @@ macro_rules! run_task_later {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin($future);
+
+        let future: Pin<Box<dyn Future<Output = ()> + Send>> = match async { $body }.await {
+            _ => Box::pin(async {}),
+        };
 
         let handler = Arc::new(InlineOnceHandler {
             cancel_flag,
-            future: std::sync::Mutex::new(Some(future)),
+            future: Mutex::new(Some(future)),
         });
 
         $server
             .task_scheduler
             .schedule_once($delay_ticks as u64, handler);
+    }};
+}
+
+#[macro_export]
+macro_rules! run_task_timer {
+    ($server:expr, $interval_ticks:expr, $body:block) => {{
+        use std::sync::{Arc, Mutex};
+
+        let server = Arc::clone(&$server);
+        let task_cell = Arc::new(Mutex::new(None::<Arc<dyn Fn() + Send + Sync + 'static>>));
+
+        let task = {
+            let task_cell = Arc::clone(&task_cell);
+            let server = Arc::clone(&server);
+
+            Arc::new(move || {
+                run_task_later!(server.clone(), 0, { $body });
+
+                if let Some(task) = task_cell.lock().unwrap().as_ref() {
+                    run_task_later!(server.clone(), $interval_ticks, {
+                        task();
+                    });
+                }
+            }) as Arc<dyn Fn() + Send + Sync + 'static>
+        };
+
+        *task_cell.lock().unwrap() = Some(task.clone());
+
+        run_task_later!(server, $interval_ticks, {
+            task();
+        });
     }};
 }
 
@@ -97,7 +131,7 @@ macro_rules! run_task_later {
     }};
 }*/
 
-#[macro_export]
+/*#[macro_export]
 macro_rules! run_task_timer {
     ($server:expr, $interval_ticks:expr, $($body:tt)*) => {{
         use pumpkin::server::Server;
@@ -131,7 +165,7 @@ macro_rules! run_task_timer {
             task_closure();
         });
     }};
-}
+}*/
 
 /*#[macro_export]
 macro_rules! run_task_timer {
