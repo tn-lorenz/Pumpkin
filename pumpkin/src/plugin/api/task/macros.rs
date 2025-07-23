@@ -6,7 +6,7 @@ macro_rules! run_task_later {
         use std::future::Future;
         use std::pin::Pin;
         use std::sync::{
-            Arc,
+            Arc, Mutex,
             atomic::{AtomicBool, Ordering},
         };
 
@@ -44,6 +44,32 @@ macro_rules! run_task_later {
 }
 
 #[macro_export]
+macro_rules! run_task_timer {
+    ($server:expr, $interval_ticks:expr, $body:block) => {{
+        use pumpkin::plugin::api::Server;
+        use std::sync::Arc;
+
+        fn schedule_next(server: Arc<Server>, interval: u64, task: Arc<dyn Fn() + Send + Sync>) {
+            run_task_later!(server, interval, {
+                task();
+            });
+        }
+
+        let server = Arc::new($server.clone());
+        let task: Arc<dyn Fn() + Send + Sync> = Arc::new({
+            let server = server.clone();
+            move || {
+                let server = server.clone();
+                run_task_later_once!(server.clone(), 0, $body);
+                schedule_next(server, $interval_ticks as u64, Arc::clone(&task));
+            }
+        });
+
+        schedule_next(server, $interval_ticks as u64, task);
+    }};
+}
+
+/*#[macro_export]
 macro_rules! run_task_timer {
     ($server:expr, $interval_ticks:expr, $body:block) => {{
         use async_trait::async_trait;
@@ -97,4 +123,4 @@ macro_rules! run_task_timer {
             .task_scheduler
             .schedule_repeating($interval_ticks as u64, handler);
     }};
-}
+}*/
