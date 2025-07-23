@@ -34,11 +34,7 @@ macro_rules! run_task_later {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move {
-            match async { $body }.await {
-                _ => (),
-            }
-        });
+        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin($body);
 
         let handler = Arc::new(InlineOnceHandler {
             cancel_flag,
@@ -108,7 +104,7 @@ macro_rules! run_task_timer {
         use std::sync::{Arc, Mutex};
 
         fn schedule_next(server: Arc<Server>, interval: u64, task: Arc<dyn Fn() + Send + Sync>) {
-            run_task_later!(server.clone(), interval, {
+            run_task_later!(server.clone(), interval, async {
                 task();
             });
         }
