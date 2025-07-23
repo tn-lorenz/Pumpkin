@@ -2,6 +2,7 @@
 macro_rules! run_task_later {
     ($server:expr, $delay_ticks:expr, $body:block) => {{
         use async_trait::async_trait;
+        use pumpkin::plugin::api::task::TaskHandler;
         use std::future::Future;
         use std::pin::Pin;
         use std::sync::{
@@ -19,7 +20,7 @@ macro_rules! run_task_later {
         }
 
         #[async_trait]
-        impl pumpkin::plugin::api::task::TaskHandler for InlineHandler {
+        impl TaskHandler for InlineHandler {
             async fn run(&self) {
                 if self.cancel_flag.load(Ordering::Relaxed) {
                     return;
@@ -35,6 +36,7 @@ macro_rules! run_task_later {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
+
         let closure = {
             let cancel_flag = cancel_flag.clone();
             Arc::new(move |cancel: Arc<dyn Fn() + Send + Sync>| {
@@ -91,11 +93,12 @@ macro_rules! run_task_timer {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
+
         let closure = Box::new(move |cancel: &dyn Fn()| {
             Box::pin(async move {
                 let cancel = cancel;
-                (async move { $body }).await;
-            })
+                $body
+            }) as Pin<Box<dyn Future<Output = ()> + Send>>
         })
             as Box<dyn Fn(&dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
