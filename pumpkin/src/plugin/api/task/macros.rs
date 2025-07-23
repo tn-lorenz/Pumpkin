@@ -10,42 +10,31 @@ macro_rules! run_task_later {
             atomic::{AtomicBool, Ordering},
         };
 
-        struct InlineHandler {
+        struct InlineOnceHandler {
             cancel_flag: Arc<AtomicBool>,
-            closure: Arc<
-                dyn Fn(Arc<dyn Fn() + Send + Sync>) -> Pin<Box<dyn Future<Output = ()> + Send>>
-                    + Send
-                    + Sync,
-            >,
+            future: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
         }
 
         #[async_trait]
-        impl TaskHandler for InlineHandler {
+        impl TaskHandler for InlineOnceHandler {
             async fn run(&self) {
                 if self.cancel_flag.load(Ordering::Relaxed) {
                     return;
                 }
 
-                let cancel_flag = self.cancel_flag.clone();
-                let cancel = Arc::new(move || {
-                    cancel_flag.store(true, Ordering::Relaxed);
-                });
-
-                (self.closure)(cancel).await;
+                if let Some(fut) = self.future.lock().unwrap().take() {
+                    fut.await;
+                }
             }
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let closure = Arc::new(move |cancel: Arc<dyn Fn() + Send + Sync>| {
-            Box::pin(async move {
-                let cancel = cancel;
-                $body
-            }) as Pin<Box<dyn Future<Output = ()> + Send>>
-        });
 
-        let handler = Arc::new(InlineHandler {
+        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move { $body });
+
+        let handler = Arc::new(InlineOnceHandler {
             cancel_flag,
-            closure,
+            future: std::sync::Mutex::new(Some(future)),
         });
 
         $server
