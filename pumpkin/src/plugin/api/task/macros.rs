@@ -22,7 +22,12 @@ macro_rules! run_task_later {
                     return;
                 }
 
-                if let Some(fut) = self.future.lock().unwrap().take() {
+                let fut = {
+                    let mut guard = self.future.lock().unwrap();
+                    guard.take()
+                };
+
+                if let Some(fut) = fut {
                     fut.await;
                 }
             }
