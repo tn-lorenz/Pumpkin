@@ -71,7 +71,9 @@ macro_rules! run_task_timer {
                 let server = Arc::clone(&server);
                 let task = Arc::clone(task_ref_clone.lock().unwrap().as_ref().unwrap());
 
-                run_task_later!(server.clone(), 0, { $body });
+                run_task_later!(server.clone(), 0, {
+                    { $body }
+                });
 
                 schedule_next(server, $interval_ticks as u64, task);
             })
