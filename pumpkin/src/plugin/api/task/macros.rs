@@ -3,6 +3,8 @@ macro_rules! run_task_later {
     ($server:expr, $delay_ticks:expr, $closure:expr) => {{
         use async_trait::async_trait;
         use pumpkin::plugin::api::task::TaskHandler;
+        use std::future::Future;
+        use std::pin::Pin;
         use std::sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -10,14 +12,8 @@ macro_rules! run_task_later {
 
         struct InlineHandler {
             cancel_flag: Arc<AtomicBool>,
-            closure: Box<
-                dyn Fn(
-                        Box<dyn Fn() + Send + Sync>,
-                    )
-                        -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-                    + Send
-                    + Sync,
-            >,
+            closure:
+                Box<dyn Fn(&dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
         }
 
         #[async_trait]
@@ -28,12 +24,11 @@ macro_rules! run_task_later {
                 }
 
                 let cancel_flag = self.cancel_flag.clone();
-
-                let cancel = Box::new(move || {
+                let cancel = || {
                     cancel_flag.store(true, Ordering::Relaxed);
-                });
+                };
 
-                (self.closure)(cancel).await;
+                (self.closure)(&cancel).await;
             }
         }
 
@@ -41,7 +36,8 @@ macro_rules! run_task_later {
 
         let closure = {
             let cancel_flag = cancel_flag.clone();
-            Box::new(move |cancel: Box<dyn Fn() + Send + Sync>| Box::pin($closure(cancel)))
+            Box::new(move |cancel: &dyn Fn()| Box::pin(($closure)(cancel)))
+                as Box<dyn Fn(&dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>
         };
 
         let handler = Arc::new(InlineHandler {
