@@ -34,7 +34,10 @@ macro_rules! run_task_later {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move { $body });
+        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move {
+            let body = $body;
+            body.await;
+        });
 
         let handler = Arc::new(InlineOnceHandler {
             cancel_flag,
@@ -106,6 +109,40 @@ macro_rules! run_task_timer {
         fn schedule_next(server: Arc<Server>, interval: u64, task: Arc<dyn Fn() + Send + Sync>) {
             run_task_later!(server.clone(), interval, {
                 task();
+                async {}
+            });
+        }
+
+        let server: Arc<Server> = $server;
+        let task_ref = Arc::new(Mutex::new(None));
+
+        let task_closure: Arc<dyn Fn() + Send + Sync> = {
+            let server = Arc::clone(&server);
+            let task_ref_clone = Arc::clone(&task_ref);
+
+            Arc::new(move || {
+                let server = Arc::clone(&server);
+                let task = Arc::clone(task_ref_clone.lock().unwrap().as_ref().unwrap());
+
+                run_task_later!(server.clone(), 0, $body);
+                schedule_next(server, $interval_ticks as u64, task);
+            })
+        };
+
+        *task_ref.lock().unwrap() = Some(Arc::clone(&task_closure));
+        schedule_next(server, $interval_ticks as u64, Arc::clone(&task_closure));
+    }};
+}
+
+/*#[macro_export]
+macro_rules! run_task_timer {
+    ($server:expr, $interval_ticks:expr, $body:expr) => {{
+        use pumpkin::server::Server;
+        use std::sync::{Arc, Mutex};
+
+        fn schedule_next(server: Arc<Server>, interval: u64, task: Arc<dyn Fn() + Send + Sync>) {
+            run_task_later!(server.clone(), interval, {
+                task();
             });
         }
 
@@ -130,7 +167,7 @@ macro_rules! run_task_timer {
         *task_ref.lock().unwrap() = Some(Arc::clone(&task_closure));
         schedule_next(server, $interval_ticks as u64, Arc::clone(&task_closure));
     }};
-}
+}*/
 
 /*#[macro_export]
 macro_rules! run_task_timer {
