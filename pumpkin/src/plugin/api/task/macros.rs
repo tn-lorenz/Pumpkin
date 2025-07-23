@@ -55,7 +55,7 @@ macro_rules! run_task_timer {
         use std::sync::{Arc, Mutex};
 
         fn schedule_next(server: Arc<Server>, interval: u64, task: Arc<dyn Fn() + Send + Sync>) {
-            run_task_later!(server, interval, {
+            run_task_later!(server.clone(), interval, {
                 task();
             });
         }
@@ -78,7 +78,6 @@ macro_rules! run_task_timer {
         };
 
         *task_ref.lock().unwrap() = Some(Arc::clone(&task_closure));
-
         schedule_next(server, $interval_ticks as u64, Arc::clone(&task_closure));
     }};
 }
