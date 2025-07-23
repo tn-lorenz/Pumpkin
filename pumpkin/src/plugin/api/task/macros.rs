@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! run_task_later {
-    ($server:expr, $delay_ticks:expr, $body:block) => {{
+    ($server:expr, $delay_ticks:expr, $body:expr) => {{
         use async_trait::async_trait;
         use pumpkin::plugin::api::task::TaskHandler;
         use std::future::Future;
@@ -36,19 +36,7 @@ macro_rules! run_task_later {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let closure = {
-            Box::new(move |cancel: &dyn Fn()| {
-                Box::pin(async move {
-                    let cancel = cancel;
-                    $body
-                })
-            })
-                as Box<
-                    dyn for<'task> Fn(&'task dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
-                        + Send
-                        + Sync,
-                >
-        };
+        let closure = Box::new($body);
 
         let handler = Arc::new(InlineHandler {
             cancel_flag,
@@ -62,7 +50,7 @@ macro_rules! run_task_later {
 
 #[macro_export]
 macro_rules! run_task_timer {
-    ($server:expr, $interval_ticks:expr, $body:block) => {{
+    ($server:expr, $interval_ticks:expr, $body:expr) => {{
         use async_trait::async_trait;
         use pumpkin::plugin::api::task::TaskHandler;
         use std::future::Future;
@@ -98,19 +86,7 @@ macro_rules! run_task_timer {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let closure = {
-            Box::new(move |cancel: &dyn Fn()| {
-                Box::pin(async move {
-                    let cancel = cancel;
-                    $body
-                })
-            })
-                as Box<
-                    dyn for<'task> Fn(&'task dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
-                        + Send
-                        + Sync,
-                >
-        };
+        let closure = Box::new($body);
 
         let handler = Arc::new(InlineHandler {
             cancel_flag,
