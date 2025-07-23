@@ -1,5 +1,54 @@
 #[macro_export]
 macro_rules! run_task_later {
+    ($server:expr, $delay_ticks:expr, $body:expr) => {{
+        use async_trait::async_trait;
+        use pumpkin::plugin::api::task::TaskHandler;
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        struct InlineOnceHandler {
+            cancel_flag: Arc<AtomicBool>,
+            future: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
+        }
+
+        #[async_trait]
+        impl TaskHandler for InlineOnceHandler {
+            async fn run(&self) {
+                if self.cancel_flag.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                let fut = {
+                    let mut guard = self.future.lock().unwrap();
+                    guard.take()
+                };
+
+                if let Some(fut) = fut {
+                    fut.await;
+                }
+            }
+        }
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move { $body });
+
+        let handler = Arc::new(InlineOnceHandler {
+            cancel_flag,
+            future: std::sync::Mutex::new(Some(future)),
+        });
+
+        $server
+            .task_scheduler
+            .schedule_once($delay_ticks as u64, handler);
+    }};
+}
+
+/*#[macro_export]
+macro_rules! run_task_later {
     ($server:expr, $delay_ticks:expr, $body:block) => {{
         use async_trait::async_trait;
         use pumpkin::plugin::api::task::TaskHandler;
@@ -46,9 +95,44 @@ macro_rules! run_task_later {
             .task_scheduler
             .schedule_once($delay_ticks as u64, handler);
     }};
-}
+}*/
 
 #[macro_export]
+macro_rules! run_task_timer {
+    ($server:expr, $interval_ticks:expr, $body:expr) => {{
+        use pumpkin::server::Server;
+        use std::sync::{Arc, Mutex};
+
+        fn schedule_next(server: Arc<Server>, interval: u64, task: Arc<dyn Fn() + Send + Sync>) {
+            run_task_later!(server.clone(), interval, {
+                task();
+            });
+        }
+
+        let server: Arc<Server> = $server;
+        let task_ref = Arc::new(Mutex::new(None));
+
+        let task_closure: Arc<dyn Fn() + Send + Sync> = {
+            let server = Arc::clone(&server);
+            let task_ref_clone = Arc::clone(&task_ref);
+
+            Arc::new(move || {
+                let server = Arc::clone(&server);
+                let task = Arc::clone(task_ref_clone.lock().unwrap().as_ref().unwrap());
+
+                let body = $body;
+                run_task_later!(server.clone(), 0, body);
+
+                schedule_next(server, $interval_ticks as u64, task);
+            })
+        };
+
+        *task_ref.lock().unwrap() = Some(Arc::clone(&task_closure));
+        schedule_next(server, $interval_ticks as u64, Arc::clone(&task_closure));
+    }};
+}
+
+/*#[macro_export]
 macro_rules! run_task_timer {
     ($server:expr, $interval_ticks:expr, $body:block) => {{
         use pumpkin::server::Server;
@@ -82,7 +166,7 @@ macro_rules! run_task_timer {
         *task_ref.lock().unwrap() = Some(Arc::clone(&task_closure));
         schedule_next(server, $interval_ticks as u64, Arc::clone(&task_closure));
     }};
-}
+}*/
 
 /*#[macro_export]
 macro_rules! run_task_timer {
