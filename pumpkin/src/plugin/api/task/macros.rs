@@ -50,7 +50,7 @@ macro_rules! run_task_later {
 
 #[macro_export]
 macro_rules! run_task_timer {
-    ($server:expr, $interval_ticks:expr, $body:expr) => {{
+    ($server:expr, $interval_ticks:expr, $body:block) => {{
         use async_trait::async_trait;
         use pumpkin::plugin::api::task::TaskHandler;
         use std::future::Future;
@@ -62,11 +62,8 @@ macro_rules! run_task_timer {
 
         struct InlineHandler {
             cancel_flag: Arc<AtomicBool>,
-            closure: Box<
-                dyn for<'task> Fn(&'task dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>>
-                    + Send
-                    + Sync,
-            >,
+            closure:
+                Box<dyn Fn(&dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
         }
 
         #[async_trait]
@@ -86,7 +83,13 @@ macro_rules! run_task_timer {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let closure = Box::new($body);
+        let closure = Box::new(move |cancel: &dyn Fn()| {
+            Box::pin(async move {
+                let cancel = cancel;
+                (async move { $body }).await;
+            })
+        })
+            as Box<dyn Fn(&dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
         let handler = Arc::new(InlineHandler {
             cancel_flag,
