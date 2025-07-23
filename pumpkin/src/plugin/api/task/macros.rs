@@ -31,21 +31,17 @@ macro_rules! run_task_later {
                     cancel_flag.store(true, Ordering::Relaxed);
                 });
 
-                (self.closure)(cancel.clone()).await;
+                (self.closure)(cancel).await;
             }
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-
-        let closure = {
-            let cancel_flag = cancel_flag.clone();
-            Arc::new(move |cancel: Arc<dyn Fn() + Send + Sync>| {
-                Box::pin(async move {
-                    let cancel = &*cancel;
-                    $body
-                }) as Pin<Box<dyn Future<Output = ()> + Send>>
-            })
-        };
+        let closure = Arc::new(move |cancel: Arc<dyn Fn() + Send + Sync>| {
+            Box::pin(async move {
+                let cancel = cancel;
+                $body
+            }) as Pin<Box<dyn Future<Output = ()> + Send>>
+        });
 
         let handler = Arc::new(InlineHandler {
             cancel_flag,
@@ -72,8 +68,11 @@ macro_rules! run_task_timer {
 
         struct InlineHandler {
             cancel_flag: Arc<AtomicBool>,
-            closure:
-                Box<dyn Fn(&dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
+            closure: Arc<
+                dyn Fn(Arc<dyn Fn() + Send + Sync>) -> Pin<Box<dyn Future<Output = ()> + Send>>
+                    + Send
+                    + Sync,
+            >,
         }
 
         #[async_trait]
@@ -84,23 +83,21 @@ macro_rules! run_task_timer {
                 }
 
                 let cancel_flag = self.cancel_flag.clone();
-                let cancel = || {
+                let cancel = Arc::new(move || {
                     cancel_flag.store(true, Ordering::Relaxed);
-                };
+                });
 
-                (self.closure)(&cancel).await;
+                (self.closure)(cancel).await;
             }
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-
-        let closure = Box::new(move |cancel: &dyn Fn()| {
+        let closure = Arc::new(move |cancel: Arc<dyn Fn() + Send + Sync>| {
             Box::pin(async move {
                 let cancel = cancel;
                 $body
             }) as Pin<Box<dyn Future<Output = ()> + Send>>
-        })
-            as Box<dyn Fn(&dyn Fn()) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+        });
 
         let handler = Arc::new(InlineHandler {
             cancel_flag,
