@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 #[async_trait::async_trait]
 pub trait TaskHandler: Send + Sync + 'static {
     async fn run(&self);
+    async fn cancel(&self);
 }
 
 pub enum ScheduledTaskType {
@@ -38,15 +39,21 @@ impl TaskScheduler {
         }
     }
 
-    pub fn schedule_once(&self, delay_ticks: u64, handler: Arc<dyn TaskHandler>) {
+    pub fn schedule_once(
+        &self,
+        delay_ticks: u64,
+        handler: Arc<dyn TaskHandler>,
+    ) -> Arc<AtomicBool> {
         let current_tick = self.tick_count.load(Ordering::Relaxed);
+        let cancel_flag = Arc::new(AtomicBool::new(false));
         self.tasks.lock().unwrap().push(ScheduledTask {
             task_type: ScheduledTaskType::Later {
                 run_at_tick: current_tick + delay_ticks,
             },
             handler,
-            cancel_flag: Arc::new(AtomicBool::new(false)),
+            cancel_flag: cancel_flag.clone(),
         });
+        cancel_flag
     }
 
     pub fn schedule_repeating(
@@ -74,6 +81,10 @@ impl TaskScheduler {
 
         tasks.retain_mut(|task| {
             if task.cancel_flag.load(Ordering::Relaxed) {
+                let handler = task.handler.clone();
+                tokio::spawn(async move {
+                    handler.cancel().await;
+                });
                 return false;
             }
 
@@ -104,6 +115,30 @@ impl TaskScheduler {
                 }
             }
         });
+    }
+}
+
+#[derive(Clone)]
+pub struct ScheduledHandle {
+    handler: Arc<dyn TaskHandler>,
+    cancel_flag: Arc<AtomicBool>,
+}
+
+impl ScheduledHandle {
+    pub async fn cancel(&self) {
+        self.cancel_flag.store(true, Ordering::Relaxed);
+        self.handler.cancel().await;
+    }
+}
+
+#[derive(Clone)]
+pub struct RepeatingHandle {
+    cancel_flag: Arc<AtomicBool>,
+}
+
+impl RepeatingHandle {
+    pub async fn cancel(&self) {
+        self.cancel_flag.store(true, Ordering::Relaxed);
     }
 }
 
