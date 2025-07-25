@@ -59,6 +59,8 @@ macro_rules! run_task_later {
 #[macro_export]
 macro_rules! run_task_timer {
     ($server:expr, $interval_ticks:expr, $closure:expr) => {{
+        use std::future::Future;
+        use std::pin::Pin;
         use std::sync::{
             Arc, Mutex,
             atomic::{AtomicBool, Ordering},
@@ -67,9 +69,8 @@ macro_rules! run_task_timer {
         let server = Arc::clone(&$server);
         let task_cell = Arc::new(Mutex::new(None::<Arc<dyn Fn() + Send + Sync + 'static>>));
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        //let user_closure = Arc::new($closure);
-        type CancelFn = Box<dyn FnOnce() + Send>;
-        let user_closure = Arc::new(move |cancel: CancelFn| {
+
+        let user_closure = Arc::new(move |cancel: Box<dyn FnOnce() + Send>| {
             Box::pin($closure(cancel)) as Pin<Box<dyn Future<Output = ()> + Send>>
         });
 
@@ -85,22 +86,23 @@ macro_rules! run_task_timer {
                 }
 
                 let cancel_flag = cancel_flag.clone();
-                let user_closure_for_task = Arc::clone(&user_closure);
-
+                let user_closure = user_closure.clone();
                 let task_guard = task_cell.lock().unwrap();
 
                 if let Some(task) = task_guard.as_ref() {
-                    let task_clone = Arc::clone(task);
+                    let task = Arc::clone(task);
                     drop(task_guard);
-                    $crate::run_task_later!(server.clone(), $interval_ticks, {
-                        let cancel = || {
+                    $crate::run_task_later!(server.clone(), 0, {
+                        let cancel = Box::new(move || {
                             cancel_flag.store(true, Ordering::Relaxed);
-                        };
+                        }) as Box<dyn FnOnce() + Send>;
 
-                        user_closure_for_task(cancel).await;
+                        user_closure(cancel).await;
 
                         if !cancel_flag.load(Ordering::Relaxed) {
-                            task_clone();
+                            run_task_later!(server.clone(), $interval_ticks, {
+                                task();
+                            });
                         }
                     });
                 }
@@ -108,11 +110,8 @@ macro_rules! run_task_timer {
         };
 
         *task_cell.lock().unwrap() = Some(task.clone());
-
-        let task_clone_for_initial = Arc::clone(&task);
-
-        $crate::run_task_later!(server, $interval_ticks, {
-            task_clone_for_initial();
+        run_task_later!(server, $interval_ticks, {
+            task();
         });
 
         cancel_flag
