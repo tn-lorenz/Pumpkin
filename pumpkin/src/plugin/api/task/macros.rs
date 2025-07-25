@@ -58,15 +58,21 @@ macro_rules! run_task_later {
 
 #[macro_export]
 macro_rules! run_task_timer {
-    ($server:expr, $interval_ticks:expr, $closure:expr) => {{
+    ($server:expr, $interval_ticks:expr, |$handle_ident:ident| $body:expr) => {{
         use async_trait::async_trait;
         use std::future::Future;
         use std::pin::Pin;
         use std::sync::{
-            Arc, Mutex,
+            Arc,
             atomic::{AtomicBool, Ordering},
         };
         use $crate::plugin::api::task::{RepeatingHandle, TaskHandler};
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let handle = RepeatingHandle {
+            cancel_flag: cancel_flag.clone(),
+        };
+        let handle_arc = Arc::new(handle);
 
         struct TimerHandler {
             cancel_flag: Arc<AtomicBool>,
@@ -89,9 +95,10 @@ macro_rules! run_task_timer {
             }
         }
 
-        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let closure_handle = handle_arc.clone();
         let closure = Arc::new(move || {
-            let fut = $closure();
+            let $handle_ident = closure_handle.clone();
+            let fut = $body;
             Box::pin(fut) as Pin<Box<dyn Future<Output = ()> + Send>>
         });
 
@@ -104,6 +111,6 @@ macro_rules! run_task_timer {
             .task_scheduler
             .schedule_repeating($interval_ticks, handler.clone());
 
-        RepeatingHandle { cancel_flag }
+        handle_arc
     }};
 }
