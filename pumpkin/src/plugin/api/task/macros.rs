@@ -5,45 +5,50 @@ macro_rules! run_task_later {
         use std::future::Future;
         use std::pin::Pin;
         use std::sync::{
-            Arc, Mutex,
+            Arc,
             atomic::{AtomicBool, Ordering},
         };
         use $crate::plugin::api::task::TaskHandler;
 
-        struct InlineOnceHandler {
-            cancel_flag: Arc<AtomicBool>,
-            future: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
+        struct DelayedTask<F>
+        where
+            F: Future<Output = ()> + Send + Sync + 'static,
+        {
+            server: $crate::server::Server,
+            delay: u64,
+            ran: Arc<AtomicBool>,
+            fut: fn() -> Pin<Box<F>>,
         }
 
         #[async_trait]
-        impl TaskHandler for InlineOnceHandler {
+        impl<F> TaskHandler for DelayedTask<F>
+        where
+            F: Future<Output = ()> + Send + Sync + 'static,
+        {
             async fn run(&self) {
-                if self.cancel_flag.load(Ordering::Relaxed) {
+                if self.ran.swap(true, Ordering::SeqCst) {
                     return;
                 }
 
-                let fut = {
-                    let mut guard = self.future.lock().unwrap();
-                    guard.take()
-                };
+                let delay = self.delay;
+                let fut = self.fut;
 
-                if let Some(fut) = fut {
-                    fut.await;
-                }
+                self.server.scheduler().schedule_delay(delay).await;
+                fut().await;
             }
         }
 
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-        let future: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(async move { $body });
+        let ran = Arc::new(AtomicBool::new(false));
+        let fut = || Box::pin(async move { $body });
 
-        let handler = Arc::new(InlineOnceHandler {
-            cancel_flag,
-            future: Mutex::new(Some(future)),
-        });
+        let task = DelayedTask {
+            server: $server.clone(),
+            delay: $delay_ticks,
+            ran,
+            fut,
+        };
 
-        $server
-            .task_scheduler
-            .schedule_once($delay_ticks as u64, handler);
+        $server.scheduler().submit(Box::new(task));
     }};
 }
 
@@ -62,16 +67,15 @@ macro_rules! run_task_timer {
             let user_closure = Arc::clone(&user_closure);
 
             Arc::new(move || {
-                let user_closure_for_immediate = Arc::clone(&user_closure);
-                $crate::run_task_later!(server.clone(), 0, {
-                    user_closure_for_immediate();
-                });
-
+                let user_closure_for_task = Arc::clone(&user_closure);
                 let task_guard = task_cell.lock().unwrap();
+
                 if let Some(task) = task_guard.as_ref() {
                     let task_clone = Arc::clone(task);
                     drop(task_guard);
+
                     $crate::run_task_later!(server.clone(), $interval_ticks, {
+                        user_closure_for_task().await;
                         task_clone();
                     });
                 }
@@ -79,6 +83,7 @@ macro_rules! run_task_timer {
         };
 
         *task_cell.lock().unwrap() = Some(task.clone());
+
         let task_clone_for_initial = Arc::clone(&task);
         $crate::run_task_later!(server, $interval_ticks, {
             task_clone_for_initial();
