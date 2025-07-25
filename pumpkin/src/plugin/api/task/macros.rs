@@ -69,9 +69,7 @@ macro_rules! run_task_timer {
         use $crate::plugin::api::task::{RepeatingHandle, TaskHandler};
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let handle = RepeatingHandle {
-            cancel_flag: cancel_flag.clone(),
-        };
+        let handle = RepeatingHandle::new(cancel_flag.clone());
         let handle_arc = Arc::new(handle);
 
         struct TimerHandler {
