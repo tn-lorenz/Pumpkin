@@ -70,14 +70,9 @@ macro_rules! run_task_timer {
         let task_cell = Arc::new(Mutex::new(None::<Arc<dyn Fn() + Send + Sync + 'static>>));
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
-        let user_closure = Arc::new(move |cancel: Box<dyn FnOnce() + Send>| {
-            Box::pin($closure(cancel)) as Pin<Box<dyn Future<Output = ()> + Send>>
-        });
-
         let task = {
             let task_cell = Arc::clone(&task_cell);
             let server = Arc::clone(&server);
-            let user_closure = Arc::clone(&user_closure);
             let cancel_flag = cancel_flag.clone();
 
             Arc::new(move || {
@@ -86,18 +81,18 @@ macro_rules! run_task_timer {
                 }
 
                 let cancel_flag = cancel_flag.clone();
-                let user_closure = user_closure.clone();
+                let server = server.clone();
                 let task_guard = task_cell.lock().unwrap();
 
                 if let Some(task) = task_guard.as_ref() {
                     let task = Arc::clone(task);
                     drop(task_guard);
                     $crate::run_task_later!(server.clone(), 0, {
-                        let cancel = Box::new(move || {
+                        let cancel_flag = cancel_flag.clone();
+                        let future = $closure(move || {
                             cancel_flag.store(true, Ordering::Relaxed);
-                        }) as Box<dyn FnOnce() + Send>;
-
-                        user_closure(cancel).await;
+                        });
+                        future.await;
 
                         if !cancel_flag.load(Ordering::Relaxed) {
                             run_task_later!(server.clone(), $interval_ticks, {
