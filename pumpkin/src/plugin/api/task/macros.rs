@@ -67,7 +67,11 @@ macro_rules! run_task_timer {
         let server = Arc::clone(&$server);
         let task_cell = Arc::new(Mutex::new(None::<Arc<dyn Fn() + Send + Sync + 'static>>));
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let user_closure = Arc::new($closure);
+        //let user_closure = Arc::new($closure);
+        type CancelFn = Box<dyn FnOnce() + Send>;
+        let user_closure = Arc::new(move |cancel: CancelFn| {
+            Box::pin($closure(cancel)) as Pin<Box<dyn Future<Output = ()> + Send>>
+        });
 
         let task = {
             let task_cell = Arc::clone(&task_cell);
