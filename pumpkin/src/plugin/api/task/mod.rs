@@ -133,10 +133,14 @@ impl ScheduledHandle {
 
 #[derive(Clone)]
 pub struct RepeatingHandle {
-    cancel_flag: Arc<AtomicBool>,
+    pub(crate) cancel_flag: Arc<AtomicBool>,
 }
 
 impl RepeatingHandle {
+    pub fn new(cancel_flag: Arc<AtomicBool>) -> Self {
+        Self { cancel_flag }
+    }
+
     pub async fn cancel(&self) {
         self.cancel_flag.store(true, Ordering::Relaxed);
     }
