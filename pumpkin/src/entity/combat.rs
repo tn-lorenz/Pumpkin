@@ -6,9 +6,6 @@ use crate::{
 use dashmap::DashMap;
 use pumpkin_config::advanced_config;
 
-use std::sync::atomic::Ordering;
-
-
 use pumpkin_data::{
     particle::Particle,
     sound::{Sound, SoundCategory},

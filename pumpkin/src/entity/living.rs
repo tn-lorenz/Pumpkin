@@ -1,6 +1,9 @@
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
+use std::sync::atomic::{
+    AtomicBool, AtomicU8,
+    Ordering::{Acquire, Relaxed, Release},
+};
+use tokio::sync::Mutex;
 use std::{collections::HashMap, sync::atomic::AtomicI32};
 
 use super::EntityBase;
@@ -25,13 +28,6 @@ use pumpkin_protocol::{
 };
 use pumpkin_util::math::vector3::Vector3;
 use pumpkin_world::item::ItemStack;
-use std::sync::Arc;
-use std::sync::atomic::{
-    AtomicBool, AtomicU8,
-    Ordering::{Acquire, Relaxed, Release},
-};
-use std::{collections::HashMap, sync::atomic::AtomicI32};
-use tokio::sync::Mutex;
 
 /// Represents a living entity within the game world.
 ///
