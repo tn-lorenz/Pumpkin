@@ -5,9 +5,10 @@ macro_rules! run_task_later {
         use std::future::Future;
         use std::pin::Pin;
         use std::sync::{
-            Arc, Mutex,
+            Arc,
             atomic::{AtomicBool, Ordering},
         };
+        use tokio::sync::Mutex;
         use $crate::plugin::api::task::{ScheduledHandle, TaskHandler};
 
         struct InlineOnceHandler {
@@ -23,7 +24,7 @@ macro_rules! run_task_later {
                 }
 
                 let fut = {
-                    let mut guard = self.future.lock().unwrap();
+                    let mut guard = self.future.lock().await;
                     guard.take()
                 };
 
@@ -47,7 +48,8 @@ macro_rules! run_task_later {
 
         $server
             .task_scheduler
-            .schedule_once($delay_ticks as u64, handler.clone());
+            .schedule_once($delay_ticks as u64, handler.clone())
+            .await;
 
         ScheduledHandle {
             handler,
@@ -107,7 +109,8 @@ macro_rules! run_task_timer {
 
         $server
             .task_scheduler
-            .schedule_repeating($interval_ticks, handler.clone());
+            .schedule_repeating($interval_ticks, handler.clone())
+            .await;
 
         handle_arc
     }};

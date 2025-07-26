@@ -1,7 +1,8 @@
 pub mod macros;
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex;
 
 #[async_trait::async_trait]
 pub trait TaskHandler: Send + Sync + 'static {
@@ -39,14 +40,14 @@ impl TaskScheduler {
         }
     }
 
-    pub fn schedule_once(
+    pub async fn schedule_once(
         &self,
         delay_ticks: u64,
         handler: Arc<dyn TaskHandler>,
     ) -> Arc<AtomicBool> {
         let current_tick = self.tick_count.load(Ordering::Relaxed);
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        self.tasks.lock().unwrap().push(ScheduledTask {
+        self.tasks.lock().await.push(ScheduledTask {
             task_type: ScheduledTaskType::Later {
                 run_at_tick: current_tick + delay_ticks,
             },
@@ -56,14 +57,14 @@ impl TaskScheduler {
         cancel_flag
     }
 
-    pub fn schedule_repeating(
+    pub async fn schedule_repeating(
         &self,
         interval_ticks: u64,
         handler: Arc<dyn TaskHandler>,
     ) -> Arc<AtomicBool> {
         let current_tick = self.tick_count.load(Ordering::Relaxed);
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        self.tasks.lock().unwrap().push(ScheduledTask {
+        self.tasks.lock().await.push(ScheduledTask {
             task_type: ScheduledTaskType::Timer {
                 interval_ticks,
                 next_run_tick: current_tick + interval_ticks,
@@ -74,10 +75,10 @@ impl TaskScheduler {
         cancel_flag
     }
 
-    pub fn tick(&self) {
+    pub async fn tick(&self) {
         let current_tick = self.tick_count.fetch_add(1, Ordering::Relaxed) + 1;
 
-        let mut tasks = self.tasks.lock().unwrap();
+        let mut tasks = self.tasks.lock().await;
 
         tasks.retain_mut(|task| {
             if task.cancel_flag.load(Ordering::Relaxed) {
@@ -141,7 +142,7 @@ impl RepeatingHandle {
         Self { cancel_flag }
     }
 
-    pub async fn cancel(&self) {
+    pub fn cancel(&self) {
         self.cancel_flag.store(true, Ordering::Relaxed);
     }
 }
