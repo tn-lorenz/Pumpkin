@@ -3,8 +3,8 @@ use std::sync::atomic::{
     AtomicBool, AtomicU8,
     Ordering::{Acquire, Relaxed, Release},
 };
-use tokio::sync::Mutex;
 use std::{collections::HashMap, sync::atomic::AtomicI32};
+use tokio::sync::Mutex;
 
 use super::EntityBase;
 use super::{Entity, NBTStorage, effect::Effect};

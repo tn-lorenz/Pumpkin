@@ -254,7 +254,11 @@ impl CombatProfile for ClassicProfile {
             //let mut velocity_multiplier = magnitude_3d / 5.6;
             //velocity_multiplier = velocity_multiplier.clamp(0.1, 1.0);
 
-            target.knockback((strength + magnitude_3d / 5.6) * 0.5, knockback_x, knockback_z);
+            target.knockback(
+                (strength + magnitude_3d / 5.6) * 0.5,
+                knockback_x,
+                knockback_z,
+            );
         } else {
             target.knockback(strength * 0.5, knockback_x, knockback_z);
         }

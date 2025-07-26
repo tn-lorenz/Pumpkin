@@ -1,7 +1,7 @@
-use std::io::Read;
-use serde::Serialize;
 use pumpkin_data::packet::serverbound::PLAY_PLAYER_COMMAND;
 use pumpkin_macros::packet;
+use serde::Serialize;
+use std::io::Read;
 
 use crate::{
     ServerPacket,
