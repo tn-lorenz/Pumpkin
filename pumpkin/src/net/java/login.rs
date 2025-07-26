@@ -19,7 +19,7 @@ use crate::{
         GameProfile,
         authentication::{self, AuthError},
         is_valid_player_name,
-        java::JavaClientPlatform,
+        java::JavaClient,
         offline_uuid,
         proxy::{bungeecord, velocity},
     },
@@ -86,7 +86,7 @@ static LINKS: LazyLock<Vec<Link>> = LazyLock::new(|| {
     links
 });
 
-impl JavaClientPlatform {
+impl JavaClient {
     pub async fn handle_login_start(&self, server: &Server, login_start: SLoginStart) {
         log::debug!("login start");
 
@@ -265,47 +265,44 @@ impl JavaClientPlatform {
         shared_secret: &[u8],
         username: &str,
     ) -> Result<GameProfile, AuthError> {
-        if let Some(auth_client) = &server.auth_client {
-            let hash = server.digest_secret(shared_secret);
-            let ip = self.address.lock().await.ip();
-            let profile = authentication::authenticate(username, &hash, &ip, auth_client).await?;
+        let hash = server.digest_secret(shared_secret);
+        let ip = self.address.lock().await.ip();
+        let profile = authentication::authenticate(username, &hash, &ip)?;
 
-            // Check if the player should join
-            if let Some(actions) = &profile.profile_actions {
-                if advanced_config()
+        // Check if the player should join
+        if let Some(actions) = &profile.profile_actions {
+            if advanced_config()
+                .networking
+                .authentication
+                .player_profile
+                .allow_banned_players
+            {
+                for allowed in &advanced_config()
                     .networking
                     .authentication
                     .player_profile
-                    .allow_banned_players
+                    .allowed_actions
                 {
-                    for allowed in &advanced_config()
-                        .networking
-                        .authentication
-                        .player_profile
-                        .allowed_actions
-                    {
-                        if !actions.contains(allowed) {
-                            return Err(AuthError::DisallowedAction);
-                        }
+                    if !actions.contains(allowed) {
+                        return Err(AuthError::DisallowedAction);
                     }
-                    if !actions.is_empty() {
-                        return Err(AuthError::Banned);
-                    }
-                } else if !actions.is_empty() {
+                }
+                if !actions.is_empty() {
                     return Err(AuthError::Banned);
                 }
+            } else if !actions.is_empty() {
+                return Err(AuthError::Banned);
             }
-            // Validate textures
-            for property in &profile.properties {
-                authentication::validate_textures(
-                    property,
-                    &advanced_config().networking.authentication.textures,
-                )
-                .map_err(AuthError::TextureError)?;
-            }
-            return Ok(profile);
         }
-        Err(AuthError::MissingAuthClient)
+        // Validate textures
+        for property in &profile.properties {
+            authentication::validate_textures(
+                property,
+                &advanced_config().networking.authentication.textures,
+            )
+            .map_err(AuthError::TextureError)?;
+        }
+        Ok(profile)
     }
 
     pub fn handle_login_cookie_response(&self, packet: &SLoginCookieResponse) {

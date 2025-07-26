@@ -61,7 +61,7 @@ impl OreFeature {
 
         for _ in n..=(n + q) {
             for _ in p..=(p + q) {
-                if o > chunk.ocean_floor_height_exclusive(&pos.0.to_vec2_i32()) as i32 {
+                if o > chunk.ocean_floor_height_exclusive(&pos.0.to_vec2_i32()) {
                     continue;
                 }
                 return self.generate_vein_part(chunk, random, d, e, h, j, l, m, n, o, p, q, r);
@@ -197,7 +197,7 @@ impl OreFeature {
                             ) {
                                 chunk.set_block_state(
                                     &Vector3::new(ad, ae, af),
-                                    target.state.get_state().unwrap(),
+                                    target.state.get_state(),
                                 );
                                 placed_blocks_count += 1;
                                 break; // Equivalent to 'continue block11;'

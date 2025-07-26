@@ -43,6 +43,7 @@ use std::sync::{
 use tokio::sync::{Mutex, RwLock};
 
 pub mod ai;
+pub mod decoration;
 pub mod effect;
 pub mod experience_orb;
 pub mod hunger;
@@ -55,8 +56,6 @@ pub mod tnt;
 pub mod r#type;
 
 pub mod combat;
-
-pub type EntityId = i32;
 
 #[async_trait]
 pub trait EntityBase: Send + Sync {
@@ -125,7 +124,7 @@ static CURRENT_ID: AtomicI32 = AtomicI32::new(0);
 /// Represents a non-living Entity (e.g. Item, Egg, Snowball...)
 pub struct Entity {
     /// A unique identifier for the entity
-    pub entity_id: EntityId,
+    pub entity_id: i32,
     /// A persistent, unique identifier for the entity
     pub entity_uuid: uuid::Uuid,
     /// The type of entity (e.g., player, zombie, item)
@@ -174,6 +173,9 @@ pub struct Entity {
     pub portal_cooldown: AtomicU32,
 
     pub portal_manager: Mutex<Option<Mutex<PortalManager>>>,
+
+    /// The data send in the Entity Spawn packet
+    pub data: AtomicI32,
 }
 
 impl Entity {
@@ -221,6 +223,7 @@ impl Entity {
             bounding_box_size: AtomicCell::new(bounding_box_size),
             invulnerable: AtomicBool::new(invulnerable),
             damage_immunities: Vec::new(),
+            data: AtomicI32::new(0),
             fire_ticks: AtomicI32::new(-1),
             has_visual_fire: AtomicBool::new(false),
             portal_cooldown: AtomicU32::new(0),
@@ -439,7 +442,7 @@ impl Entity {
             self.pitch.load(),
             self.yaw.load(),
             self.head_yaw.load(), // todo: head_yaw and yaw are swapped, find out why
-            0.into(),
+            self.data.load(Relaxed).into(),
             entity_vel,
         )
     }
@@ -512,6 +515,27 @@ impl Entity {
             13 => Integer0To15::L13,
             14 => Integer0To15::L14,
             _ => Integer0To15::L15,
+        }
+    }
+
+    pub fn get_flipped_rotation_16(&self) -> Integer0To15 {
+        match self.get_rotation_16() {
+            Integer0To15::L0 => Integer0To15::L8,
+            Integer0To15::L1 => Integer0To15::L9,
+            Integer0To15::L2 => Integer0To15::L10,
+            Integer0To15::L3 => Integer0To15::L11,
+            Integer0To15::L4 => Integer0To15::L12,
+            Integer0To15::L5 => Integer0To15::L13,
+            Integer0To15::L6 => Integer0To15::L14,
+            Integer0To15::L7 => Integer0To15::L15,
+            Integer0To15::L8 => Integer0To15::L0,
+            Integer0To15::L9 => Integer0To15::L1,
+            Integer0To15::L10 => Integer0To15::L2,
+            Integer0To15::L11 => Integer0To15::L3,
+            Integer0To15::L12 => Integer0To15::L4,
+            Integer0To15::L13 => Integer0To15::L5,
+            Integer0To15::L14 => Integer0To15::L6,
+            Integer0To15::L15 => Integer0To15::L7,
         }
     }
 
@@ -635,10 +659,7 @@ impl Entity {
             .await;
     }
 
-    pub async fn send_meta_data<T>(&self, meta: &[Metadata<T>])
-    where
-        T: Serialize,
-    {
+    pub async fn send_meta_data<T: Serialize>(&self, meta: &[Metadata<T>]) {
         let mut buf = Vec::new();
         for meta in meta {
             let mut serializer_buf = Vec::new();
@@ -702,7 +723,7 @@ impl Entity {
             for y in blockpos.0.y..=blockpos1.0.y {
                 for z in blockpos.0.z..=blockpos1.0.z {
                     let pos = BlockPos::new(x, y, z);
-                    let (block, state) = world.get_block_and_block_state(&pos).await;
+                    let (block, state) = world.get_block_and_state(&pos).await;
                     let block_outlines = state.get_block_outline_shapes();
 
                     if let Some(outlines) = block_outlines {
@@ -714,7 +735,7 @@ impl Entity {
                             let fluid = world.get_fluid(&pos).await;
                             world
                                 .block_registry
-                                .on_entity_collision_fluid(&fluid, entity)
+                                .on_entity_collision_fluid(fluid, entity)
                                 .await;
                             continue;
                         }
@@ -728,7 +749,7 @@ impl Entity {
                                 let fluid = world.get_fluid(&pos).await;
                                 world
                                     .block_registry
-                                    .on_entity_collision_fluid(&fluid, entity)
+                                    .on_entity_collision_fluid(fluid, entity)
                                     .await;
                                 break;
                             }
@@ -741,7 +762,7 @@ impl Entity {
                         let fluid = world.get_fluid(&pos).await;
                         world
                             .block_registry
-                            .on_entity_collision_fluid(&fluid, entity)
+                            .on_entity_collision_fluid(fluid, entity)
                             .await;
                     }
                 }

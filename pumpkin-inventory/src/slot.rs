@@ -1,11 +1,15 @@
 #![warn(unused)]
 use std::{
     fmt::Debug,
-    sync::{Arc, atomic::AtomicU8},
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
     time::Duration,
 };
 
 use async_trait::async_trait;
+use pumpkin_data::item::Item;
 use pumpkin_world::inventory::Inventory;
 use pumpkin_world::item::ItemStack;
 use tokio::{sync::Mutex, time::timeout};
@@ -218,8 +222,7 @@ impl Slot for NormalSlot {
     }
 
     fn set_id(&self, id: usize) {
-        self.id
-            .store(id as u8, std::sync::atomic::Ordering::Relaxed);
+        self.id.store(id as u8, Ordering::Relaxed);
     }
 
     async fn mark_dirty(&self) {
@@ -258,8 +261,7 @@ impl Slot for ArmorSlot {
     }
 
     fn set_id(&self, id: usize) {
-        self.id
-            .store(id as u8, std::sync::atomic::Ordering::Relaxed);
+        self.id.store(id as u8, Ordering::Relaxed);
     }
 
     async fn get_max_item_count(&self) -> u8 {
@@ -271,11 +273,17 @@ impl Slot for ArmorSlot {
         self.set_stack_no_callbacks(stack).await;
     }
 
-    async fn can_insert(&self, _stack: &ItemStack) -> bool {
-        // TODO: return this.entity.canEquip(stack, this.equipmentSlot);
-        true
+    async fn can_insert(&self, stack: &ItemStack) -> bool {
+        match self.equipment_slot {
+            EquipmentSlot::Head(_) => {
+                stack.is_helmet() || stack.is_skull() || stack.item == &Item::CARVED_PUMPKIN
+            }
+            EquipmentSlot::Chest(_) => stack.is_chestplate() || stack.item == &Item::ELYTRA,
+            EquipmentSlot::Legs(_) => stack.is_leggings(),
+            EquipmentSlot::Feet(_) => stack.is_boots(),
+            _ => true,
+        }
     }
-
     async fn can_take_items(&self, _player: &dyn InventoryPlayer) -> bool {
         // TODO: Check enchantments
         true

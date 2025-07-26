@@ -9,7 +9,7 @@ use pumpkin_world::item::ItemStack;
 use std::array::from_fn;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -42,6 +42,15 @@ impl PlayerInventory {
             .get(self.get_selected_slot() as usize)
             .unwrap()
             .clone()
+    }
+
+    /// getOffHandStack in source
+    pub async fn off_hand_item(&self) -> Arc<Mutex<ItemStack>> {
+        let slot = self
+            .equipment_slots
+            .get(&PlayerInventory::OFF_HAND_SLOT)
+            .unwrap();
+        self.entity_equipment.lock().await.get(slot)
     }
 
     pub async fn swap_item(&self) -> (ItemStack, ItemStack) {
@@ -408,15 +417,13 @@ impl Inventory for PlayerInventory {
 impl PlayerInventory {
     pub fn set_selected_slot(&self, slot: u8) {
         if Self::is_valid_hotbar_index(slot as usize) {
-            self.selected_slot
-                .store(slot, std::sync::atomic::Ordering::Relaxed);
+            self.selected_slot.store(slot, Ordering::Relaxed);
         } else {
             panic!("Invalid hotbar slot: {slot}");
         }
     }
 
     pub fn get_selected_slot(&self) -> u8 {
-        self.selected_slot
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.selected_slot.load(Ordering::Relaxed)
     }
 }

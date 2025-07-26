@@ -1,5 +1,10 @@
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
+use std::{collections::HashMap, sync::atomic::AtomicI32};
+
 use super::EntityBase;
-use super::{Entity, EntityId, NBTStorage, effect::Effect};
+use super::{Entity, NBTStorage, effect::Effect};
 use crate::block::loot::{LootContextParameters, LootTableExt};
 use crate::entity::combat::{CombatType, GLOBAL_COMBAT_PROFILE};
 use crate::server::Server;
@@ -123,7 +128,7 @@ impl LivingEntity {
             .await;
     }
 
-    pub const fn entity_id(&self) -> EntityId {
+    pub const fn entity_id(&self) -> i32 {
         self.entity.entity_id
     }
 
@@ -251,9 +256,16 @@ impl LivingEntity {
                     .await;
             }
         } else if height_difference < 0.0 {
-            let distance = self.fall_distance.load();
-            self.fall_distance
-                .store(distance - (height_difference as f32));
+            let new_fall_distance = if !self.is_in_water().await && !self.is_in_powder_snow().await
+            {
+                let distance = self.fall_distance.load();
+                distance - (height_difference as f32)
+            } else {
+                0f32
+            };
+
+            // Reset fall distance if is in water or powder_snow
+            self.fall_distance.store(new_fall_distance);
         }
     }
 
@@ -353,6 +365,7 @@ impl EntityBase for LivingEntity {
 
         if self.health.load() <= 0.0 {
             let time = self.death_time.fetch_add(1, Relaxed);
+
             if time == 20 {
                 // Spawn Death particles
                 self.entity
