@@ -1,12 +1,13 @@
 // Not warn event sending macros
 #![allow(unused_labels)]
 
-use crate::net::bedrock::BedrockClientPlatform;
-use crate::net::java::JavaClientPlatform;
+use crate::logging::{GzipRollingLogger, ReadlineLogWrapper};
+use crate::net::DisconnectReason;
+use crate::net::bedrock::BedrockClient;
+use crate::net::java::JavaClient;
 use crate::net::{lan_broadcast, query, rcon::RCONServer};
 use crate::server::{Server, ticker::Ticker};
-use bytes::Bytes;
-use log::{Level, LevelFilter, Log};
+use log::{Level, LevelFilter};
 use net::authentication::fetch_mojang_public_keys;
 use plugin::PluginManager;
 use plugin::server::server_command::ServerCommandEvent;
@@ -15,15 +16,19 @@ use pumpkin_macros::send_cancellable;
 use pumpkin_util::permission::{PermissionManager, PermissionRegistry};
 use pumpkin_util::text::TextComponent;
 use rustyline_async::{Readline, ReadlineEvent};
+use simplelog::SharedLogger;
 use std::collections::HashMap;
 use std::io::{Cursor, IsTerminal, stdin};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use std::{net::SocketAddr, sync::LazyLock};
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::select;
 use tokio::sync::{Mutex, Notify, RwLock};
+use tokio::time::sleep;
 use tokio_util::task::TaskTracker;
 
 pub mod block;
@@ -32,12 +37,11 @@ pub mod data;
 pub mod entity;
 pub mod error;
 pub mod item;
+pub mod logging;
 pub mod net;
 pub mod plugin;
 pub mod server;
 pub mod world;
-
-const GIT_VERSION: &str = env!("GIT_VERSION");
 
 #[cfg(feature = "dhat-heap")]
 pub static HEAP_PROFILER: LazyLock<Mutex<Option<dhat::Profiler>>> =
@@ -62,62 +66,6 @@ pub static PERMISSION_MANAGER: LazyLock<Arc<RwLock<PermissionManager>>> = LazyLo
     )))
 });
 
-/// A wrapper for our logger to hold the terminal input while no input is expected in order to
-/// properly flush logs to the output while they happen instead of batched
-pub struct ReadlineLogWrapper {
-    internal: Box<dyn Log>,
-    readline: std::sync::Mutex<Option<Readline>>,
-}
-
-impl ReadlineLogWrapper {
-    fn new(log: impl Log + 'static, rl: Option<Readline>) -> Self {
-        Self {
-            internal: Box::new(log),
-            readline: std::sync::Mutex::new(rl),
-        }
-    }
-
-    fn take_readline(&self) -> Option<Readline> {
-        if let Ok(mut result) = self.readline.lock() {
-            result.take()
-        } else {
-            None
-        }
-    }
-
-    fn return_readline(&self, rl: Readline) {
-        if let Ok(mut result) = self.readline.lock() {
-            println!("Returned rl");
-            let _ = result.insert(rl);
-        }
-    }
-}
-
-// Writing to `stdout` is expensive anyway, so I don't think having a `Mutex` here is a big deal.
-impl Log for ReadlineLogWrapper {
-    fn log(&self, record: &log::Record) {
-        self.internal.log(record);
-        if let Ok(mut lock) = self.readline.lock() {
-            if let Some(rl) = lock.as_mut() {
-                let _ = rl.flush();
-            }
-        }
-    }
-
-    fn flush(&self) {
-        self.internal.flush();
-        if let Ok(mut lock) = self.readline.lock() {
-            if let Some(rl) = lock.as_mut() {
-                let _ = rl.flush();
-            }
-        }
-    }
-
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        self.internal.enabled(metadata)
-    }
-}
-
 pub static LOGGER_IMPL: LazyLock<Option<(ReadlineLogWrapper, LevelFilter)>> = LazyLock::new(|| {
     if advanced_config().logging.enabled {
         let mut config = simplelog::ConfigBuilder::new();
@@ -126,7 +74,7 @@ pub static LOGGER_IMPL: LazyLock<Option<(ReadlineLogWrapper, LevelFilter)>> = La
             config.set_time_format_custom(time::macros::format_description!(
                 "[year]-[month]-[day] [hour]:[minute]:[second]"
             ));
-            config.set_time_level(LevelFilter::Trace);
+            config.set_time_level(LevelFilter::Error);
         } else {
             config.set_time_level(LevelFilter::Off);
         }
@@ -153,23 +101,47 @@ pub static LOGGER_IMPL: LazyLock<Option<(ReadlineLogWrapper, LevelFilter)>> = La
             .and_then(Result::ok)
             .unwrap_or(LevelFilter::Info);
 
+        let file_logger: Option<Box<dyn SharedLogger + 'static>> =
+            if advanced_config().logging.file.is_empty() {
+                None
+            } else {
+                Some(
+                    GzipRollingLogger::new(
+                        level,
+                        {
+                            let mut config = config.clone();
+                            for level in Level::iter() {
+                                config.set_level_color(level, None);
+                            }
+                            config.build()
+                        },
+                        advanced_config().logging.file.clone(),
+                    )
+                    .expect("Failed to initialize file logger.")
+                        as Box<dyn SharedLogger>,
+                )
+            };
+
         if advanced_config().commands.use_tty && stdin().is_terminal() {
             match Readline::new("$ ".to_owned()) {
                 Ok((rl, stdout)) => {
                     let logger = simplelog::WriteLogger::new(level, config.build(), stdout);
-                    Some((ReadlineLogWrapper::new(logger, Some(rl)), level))
+                    Some((
+                        ReadlineLogWrapper::new(logger, file_logger, Some(rl)),
+                        level,
+                    ))
                 }
                 Err(e) => {
                     log::warn!(
                         "Failed to initialize console input ({e}); falling back to simple logger"
                     );
                     let logger = simplelog::SimpleLogger::new(level, config.build());
-                    Some((ReadlineLogWrapper::new(logger, None), level))
+                    Some((ReadlineLogWrapper::new(logger, file_logger, None), level))
                 }
             }
         } else {
             let logger = simplelog::SimpleLogger::new(level, config.build());
-            Some((ReadlineLogWrapper::new(logger, None), level))
+            Some((ReadlineLogWrapper::new(logger, file_logger, None), level))
         }
     } else {
         None
@@ -190,7 +162,7 @@ pub static SHOULD_STOP: AtomicBool = AtomicBool::new(false);
 pub static STOP_INTERRUPT: LazyLock<Notify> = LazyLock::new(Notify::new);
 
 pub fn stop_server() {
-    SHOULD_STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+    SHOULD_STOP.store(true, Ordering::Relaxed);
     STOP_INTERRUPT.notify_waiters();
 }
 
@@ -235,9 +207,12 @@ impl PumpkinServer {
         }
 
         // Setup the TCP server socket.
-        let listener = tokio::net::TcpListener::bind(BASIC_CONFIG.java_edition_address)
-            .await
-            .expect("Failed to start `TcpListener`");
+        let listener = tokio::net::TcpListener::bind(SocketAddrV4::new(
+            Ipv4Addr::new(0, 0, 0, 0),
+            BASIC_CONFIG.java_edition_port,
+        ))
+        .await
+        .expect("Failed to start `TcpListener`");
         // In the event the user puts 0 for their port, this will allow us to know what port it is running on
         let addr = listener
             .local_addr()
@@ -257,9 +232,7 @@ impl PumpkinServer {
         }
 
         if BASIC_CONFIG.allow_chat_reports {
-            let mojang_public_keys = fetch_mojang_public_keys(server.auth_client.as_ref().unwrap())
-                .await
-                .unwrap();
+            let mojang_public_keys = fetch_mojang_public_keys().unwrap();
             *server.mojang_public_keys.lock().await = mojang_public_keys;
         }
 
@@ -271,9 +244,12 @@ impl PumpkinServer {
             });
         };
 
-        let udp_socket = UdpSocket::bind(BASIC_CONFIG.bedrock_edition_address)
-            .await
-            .expect("Failed to bind UDP Socket");
+        let udp_socket = UdpSocket::bind(SocketAddrV4::new(
+            Ipv4Addr::new(0, 0, 0, 0),
+            BASIC_CONFIG.bedrock_edition_port,
+        ))
+        .await
+        .expect("Failed to bind UDP Socket");
 
         Self {
             server: server.clone(),
@@ -304,7 +280,7 @@ impl PumpkinServer {
         let master_client_id: u64 = 0;
         let bedrock_clients = Arc::new(Mutex::new(HashMap::new()));
 
-        while !SHOULD_STOP.load(std::sync::atomic::Ordering::Relaxed) {
+        while !SHOULD_STOP.load(Ordering::Relaxed) {
             if !self
                 .unified_listener_task(master_client_id, &tasks, &bedrock_clients)
                 .await
@@ -326,7 +302,9 @@ impl PumpkinServer {
 
         let kick_message = TextComponent::text("Server stopped");
         for player in self.server.get_all_players().await {
-            player.kick(kick_message.clone()).await;
+            player
+                .kick(DisconnectReason::Shutdown, kick_message.clone())
+                .await;
         }
 
         log::info!("Ending player tasks");
@@ -354,10 +332,10 @@ impl PumpkinServer {
     pub async fn unified_listener_task(
         &self,
         mut master_client_id_counter: u64,
-        _tasks: &Arc<TaskTracker>,
-        bedrock_clients: &Arc<tokio::sync::Mutex<HashMap<SocketAddr, Arc<BedrockClientPlatform>>>>,
+        tasks: &Arc<TaskTracker>,
+        bedrock_clients: &Arc<Mutex<HashMap<SocketAddr, Arc<BedrockClient>>>>,
     ) -> bool {
-        let mut udp_buf = vec![0; 4096]; // Buffer for UDP receive
+        let mut udp_buf = [0; 1496]; // Buffer for UDP receive
 
         select! {
             // Branch for TCP connections (Java Edition)
@@ -378,36 +356,36 @@ impl PumpkinServer {
                         };
                         log::debug!("Accepted connection from Java Edition: {formatted_address} (id {client_id})");
 
-                        let mut java_client = JavaClientPlatform::new(connection, client_addr, client_id);
+                        let mut java_client = JavaClient::new(connection, client_addr, client_id);
                         java_client.start_outgoing_packet_task();
                         let java_client = Arc::new(java_client);
 
                         let server_clone = self.server.clone();
 
-                        tokio::spawn(async move {
-                                    java_client.process_packets(&server_clone).await;
-                                    java_client.close();
-                                    java_client.await_tasks().await;
+                        tasks.spawn(async move {
+                                java_client.process_packets(&server_clone).await;
+                                java_client.close();
+                                java_client.await_tasks().await;
 
-                                    let player = java_client.player.lock().await;
-                                    if let Some(player) = player.as_ref() {
-                                        log::debug!("Cleaning up player for id {client_id}");
+                                let player = java_client.player.lock().await;
+                                if let Some(player) = player.as_ref() {
+                                    log::debug!("Cleaning up player for id {client_id}");
 
-                                        if let Err(e) = server_clone.player_data_storage
+                                    if let Err(e) = server_clone.player_data_storage
                                             .handle_player_leave(player)
                                             .await
-                                        {
-                                            log::error!("Failed to save player data on disconnect: {e}");
-                                        }
-
-                                        player.remove().await;
-                                        server_clone.remove_player(player).await;
+                                    {
+                                        log::error!("Failed to save player data on disconnect: {e}");
                                     }
+
+                                    player.remove().await;
+                                    server_clone.remove_player(player).await;
+                                }
                         });
                     }
                     Err(e) => {
                         log::error!("Failed to accept Java client connection: {e}");
-                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                        sleep(Duration::from_millis(50)).await;
                     }
                 }
             },
@@ -418,35 +396,46 @@ impl PumpkinServer {
                     Ok((len, client_addr)) => {
                         if len == 0 {
                             log::warn!("Received empty UDP packet from {client_addr}");
+                        } else {
+                            let id = udp_buf[0];
+                            let is_online = id & 128 != 0;
+
+                            if is_online {
+                                let be_clients = bedrock_clients.clone();
+                                let mut clients_guard = bedrock_clients.lock().await;
+
+                                if let Some(client) = clients_guard.get(&client_addr) {
+                                    let client = client.clone();
+                                    let reader = Cursor::new(udp_buf[..len].to_vec());
+                                    let server = self.server.clone();
+
+                                    tasks.spawn(async move {
+                                        client.process_packet(&server, reader).await;
+                                    });
+                                } else if let Ok(packet) = BedrockClient::is_connection_request(&mut Cursor::new(&udp_buf[4..len])) {
+                                    master_client_id_counter += 1;
+
+                                    let mut platform = BedrockClient::new(self.udp_socket.clone(), client_addr, be_clients);
+                                    platform.handle_connection_request(packet).await;
+                                    platform.start_outgoing_packet_task();
+
+                                    clients_guard.insert(client_addr,
+                                    Arc::new(
+                                        platform
+                                    ));
+                                }
+                            } else {
+                                // Please keep the function as simple as possible!
+                                // We dont care about the result, the client just resends the packet
+                                // Since offline packets are very small we dont need to move and clone the data
+                                let _ = BedrockClient::handle_offline_packet(&self.server, id, &mut Cursor::new(&udp_buf[1..len]), client_addr, &self.udp_socket).await;
+                            }
+
                         }
-                        let received_data = Bytes::copy_from_slice(&udp_buf[..len]);
-
-
-                        let mut clients_guard = bedrock_clients.lock().await;
-
-                        // TODO: don't save clients for offline connections
-                        let client = clients_guard.entry(client_addr).or_insert_with(|| {
-                            let client_id = master_client_id_counter;
-                            master_client_id_counter += 1;
-                            log::info!("New Bedrock client detected from: {client_addr} (ID: {client_id})");
-                            let mut platform = BedrockClientPlatform::new(self.udp_socket.clone(), client_addr);
-                            platform.start_outgoing_packet_task();
-                            Arc::new(
-                                platform
-                            )
-                        });
-
-                        let server_clone = self.server.clone();
-
-                        let reader = Cursor::new(received_data.to_vec());
-                        let client = client.clone();
-                        tokio::spawn(async move {
-                            client.process_packet(&server_clone, reader).await;
-                        });
                     }
+                    // Since all packets go over this match statement, there should be not waiting
                     Err(e) => {
-                        log::error!("Failed to receive UDP packet for Bedrock: {e}");
-                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                        log::error!("{e}");
                     }
                 }
             },
@@ -464,7 +453,7 @@ async fn setup_stdin_console(server: Arc<Server>) {
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let rt = tokio::runtime::Handle::current();
     std::thread::spawn(move || {
-        while !SHOULD_STOP.load(std::sync::atomic::Ordering::Relaxed) {
+        while !SHOULD_STOP.load(Ordering::Relaxed) {
             let mut line = String::new();
             if let Ok(size) = stdin().read_line(&mut line) {
                 // if no bytes were read, we may have hit EOF
@@ -482,7 +471,7 @@ async fn setup_stdin_console(server: Arc<Server>) {
         }
     });
     tokio::spawn(async move {
-        while !SHOULD_STOP.load(std::sync::atomic::Ordering::Relaxed) {
+        while !SHOULD_STOP.load(Ordering::Relaxed) {
             if let Some(command) = rx.recv().await {
                 send_cancellable! {{
                     ServerCommandEvent::new(command.clone());
@@ -503,7 +492,7 @@ fn setup_console(rl: Readline, server: Arc<Server>) {
     // This needs to be async, or it will hog a thread.
     server.clone().spawn_task(async move {
         let mut rl = rl;
-        while !SHOULD_STOP.load(std::sync::atomic::Ordering::Relaxed) {
+        while !SHOULD_STOP.load(Ordering::Relaxed) {
             let t1 = rl.readline();
             let t2 = STOP_INTERRUPT.notified();
 

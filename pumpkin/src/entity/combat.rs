@@ -5,6 +5,10 @@ use crate::{
 };
 use dashmap::DashMap;
 use pumpkin_config::advanced_config;
+
+use std::sync::atomic::Ordering;
+
+
 use pumpkin_data::{
     particle::Particle,
     sound::{Sound, SoundCategory},
@@ -33,6 +37,7 @@ impl AttackType {
 
         let sprinting = entity.sprinting.load(Acquire);
         let on_ground = entity.on_ground.load(Acquire);
+
         let fall_distance = player.living_entity.fall_distance.load();
         let sword = player.inventory().held_item().lock().await.is_sword();
 

@@ -5,9 +5,9 @@ use pumpkin_macros::pumpkin_block;
 use pumpkin_world::world::BlockFlags;
 
 use crate::block::pumpkin_block::BrokenArgs;
-use crate::block::pumpkin_block::{BlockMetadata, PumpkinBlock};
+use crate::block::pumpkin_block::PumpkinBlock;
 
-use super::piston::{PistonBlock, PistonProps};
+use super::piston::PistonProps;
 
 pub(crate) type PistonHeadProperties = pumpkin_data::block_properties::PistonHeadLikeProperties;
 
@@ -21,9 +21,9 @@ impl PumpkinBlock for PistonHeadBlock {
         let pos = args
             .position
             .offset(props.facing.opposite().to_block_direction().to_offset());
-        let (new_block, new_state) = args.world.get_block_and_block_state(&pos).await;
-        if PistonBlock::ids(&PistonBlock).contains(&new_block.name) {
-            let props = PistonProps::from_state_id(new_state.id, new_block);
+        let (new_block, new_state) = args.world.get_block_and_state_id(&pos).await;
+        if &Block::PISTON == new_block || &Block::STICKY_PISTON == new_block {
+            let props = PistonProps::from_state_id(new_state, new_block);
             if props.extended {
                 // TODO: use player
                 args.world

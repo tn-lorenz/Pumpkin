@@ -40,15 +40,16 @@ impl PumpkinBlock for CactusBlock {
             let age = CactusLikeProperties::from_state_id(state_id, args.block).age;
             if age == Integer0To15::L15 {
                 args.world
-                    .set_block_state(&args.position.up(), state_id, BlockFlags::empty())
+                    .set_block_state(
+                        &args.position.up(),
+                        Block::CACTUS.default_state.id,
+                        BlockFlags::empty(),
+                    )
                     .await;
-                let props = CactusLikeProperties {
-                    age: Integer0To15::L0,
-                };
                 args.world
                     .set_block_state(
                         args.position,
-                        props.to_state_id(args.block),
+                        Block::CACTUS.default_state.id,
                         BlockFlags::empty(),
                     )
                     .await;
@@ -94,7 +95,7 @@ async fn can_place_at(world: &dyn BlockAccessor, block_pos: &BlockPos) -> bool {
     // Disallow to place any blocks nearby a cactus
     for direction in BlockDirection::horizontal() {
         let (block, state) = world
-            .get_block_and_block_state(&block_pos.offset(direction.to_offset()))
+            .get_block_and_state(&block_pos.offset(direction.to_offset()))
             .await;
         if state.is_solid() || block == &Block::LAVA {
             return false;

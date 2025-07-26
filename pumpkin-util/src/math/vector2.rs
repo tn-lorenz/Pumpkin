@@ -12,8 +12,8 @@ pub struct Vector2<T> {
 }
 
 impl<T: Math + Copy> Vector2<T> {
-    pub const fn new(x: T, z: T) -> Self {
-        Vector2 { x, y: z }
+    pub const fn new(x: T, y: T) -> Self {
+        Vector2 { x, y }
     }
 
     pub fn length_squared(&self) -> T {
@@ -34,10 +34,10 @@ impl<T: Math + Copy> Vector2<T> {
         }
     }
 
-    pub fn multiply(self, x: T, z: T) -> Self {
+    pub fn multiply(self, x: T, y: T) -> Self {
         Self {
             x: self.x * x,
-            y: self.y * z,
+            y: self.y * y,
         }
     }
 }
@@ -122,10 +122,7 @@ pub const fn to_chunk_pos(vec: &Vector2<i32>) -> Vector2<i32> {
 }
 
 impl serde::Serialize for Vector2<f32> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut buf = Vec::with_capacity(size_of::<Vector2<f32>>());
         buf.put_f32(self.x);
         buf.put_f32(self.y);

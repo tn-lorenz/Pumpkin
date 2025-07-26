@@ -71,14 +71,10 @@ impl PumpkinBlock for TripwireBlock {
     }
 
     async fn placed(&self, args: PlacedArgs<'_>) {
-        if let (Some(old_block), Some(new_block)) = (
-            Block::from_state_id(args.old_state_id),
-            Block::from_state_id(args.state_id),
-        ) {
-            if old_block == new_block {
-                return;
-            }
+        if Block::from_state_id(args.old_state_id) == Block::from_state_id(args.state_id) {
+            return;
         }
+
         Self::update(args.world, args.position, args.state_id).await;
     }
 
@@ -150,10 +146,7 @@ impl PumpkinBlock for TripwireBlock {
     }
 
     async fn on_state_replaced(&self, args: OnStateReplacedArgs<'_>) {
-        if args.moved
-            || Block::from_state_id(args.old_state_id)
-                .is_some_and(|old_block| old_block == args.block)
-        {
+        if args.moved || Block::from_state_id(args.old_state_id) == args.block {
             return;
         }
         let state_id = args.world.get_block_state_id(args.position).await;
@@ -167,17 +160,15 @@ impl TripwireBlock {
             for i in 1..42 {
                 let current_pos = pos.offset_dir(dir.to_offset(), i);
                 let (current_block, current_state) =
-                    world.get_block_and_block_state(&current_pos).await;
+                    world.get_block_and_state_id(&current_pos).await;
                 if current_block == &Block::TRIPWIRE_HOOK {
-                    let current_props = TripwireHookProperties::from_state_id(
-                        current_state.id,
-                        &Block::TRIPWIRE_HOOK,
-                    );
+                    let current_props =
+                        TripwireHookProperties::from_state_id(current_state, &Block::TRIPWIRE_HOOK);
                     if current_props.facing == dir.opposite().to_horizontal_facing().unwrap() {
                         TripwireHookBlock::update(
                             world,
                             current_pos,
-                            current_state.id,
+                            current_state,
                             false,
                             true,
                             i,
@@ -196,13 +187,12 @@ impl TripwireBlock {
 
     #[must_use]
     pub fn should_connect_to(state_id: BlockStateId, facing: BlockDirection) -> bool {
-        Block::from_state_id(state_id).is_some_and(|block| {
-            if block == &Block::TRIPWIRE_HOOK {
-                let props = TripwireHookProperties::from_state_id(state_id, block);
-                Some(props.facing) == facing.opposite().to_horizontal_facing()
-            } else {
-                block == &Block::TRIPWIRE
-            }
-        })
+        let block = Block::from_state_id(state_id);
+        if block == &Block::TRIPWIRE_HOOK {
+            let props = TripwireHookProperties::from_state_id(state_id, block);
+            Some(props.facing) == facing.opposite().to_horizontal_facing()
+        } else {
+            block == &Block::TRIPWIRE
+        }
     }
 }

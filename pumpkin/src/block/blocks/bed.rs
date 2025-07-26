@@ -6,6 +6,7 @@ use pumpkin_data::block_properties::BedPart;
 use pumpkin_data::block_properties::BlockProperties;
 use pumpkin_data::entity::EntityType;
 use pumpkin_data::tag::{RegistryKey, get_tag_values};
+use pumpkin_macros::pumpkin_block_from_tag;
 use pumpkin_registry::VanillaDimensionType;
 use pumpkin_util::GameMode;
 use pumpkin_util::math::position::BlockPos;
@@ -15,23 +16,54 @@ use pumpkin_world::block::entities::bed::BedBlockEntity;
 use pumpkin_world::world::BlockFlags;
 
 use crate::block::pumpkin_block::{
-    BlockMetadata, BrokenArgs, CanPlaceAtArgs, NormalUseArgs, OnPlaceArgs, PlacedArgs, PumpkinBlock,
+    BrokenArgs, CanPlaceAtArgs, NormalUseArgs, OnPlaceArgs, PlacedArgs, PumpkinBlock,
 };
+use crate::block::registry::BlockActionResult;
 use crate::entity::{Entity, EntityBase};
 use crate::world::World;
 
 type BedProperties = pumpkin_data::block_properties::WhiteBedLikeProperties;
 
-pub struct BedBlock;
-impl BlockMetadata for BedBlock {
-    fn namespace(&self) -> &'static str {
-        "minecraft"
-    }
+const NO_SLEEP_IDS: &[u16] = &[
+    EntityType::BLAZE.id,
+    EntityType::BOGGED.id,
+    EntityType::SKELETON.id,
+    EntityType::STRAY.id,
+    EntityType::WITHER_SKELETON.id,
+    EntityType::BREEZE.id,
+    EntityType::CREAKING.id,
+    EntityType::CREEPER.id,
+    EntityType::DROWNED.id,
+    EntityType::ENDERMITE.id,
+    EntityType::EVOKER.id,
+    EntityType::GIANT.id,
+    EntityType::GUARDIAN.id,
+    EntityType::ELDER_GUARDIAN.id,
+    EntityType::ILLUSIONER.id,
+    EntityType::OCELOT.id,
+    EntityType::PIGLIN.id,
+    EntityType::PIGLIN_BRUTE.id,
+    EntityType::PILLAGER.id,
+    EntityType::PHANTOM.id,
+    EntityType::RAVAGER.id,
+    EntityType::SILVERFISH.id,
+    EntityType::SPIDER.id,
+    EntityType::CAVE_SPIDER.id,
+    EntityType::VEX.id,
+    EntityType::VINDICATOR.id,
+    EntityType::WARDEN.id,
+    EntityType::WITCH.id,
+    EntityType::WITHER.id,
+    EntityType::ZOGLIN.id,
+    EntityType::ZOMBIE.id,
+    EntityType::ZOMBIE_VILLAGER.id,
+    EntityType::HUSK.id,
+    EntityType::ENDERMAN.id,
+    EntityType::ZOMBIFIED_PIGLIN.id,
+];
 
-    fn ids(&self) -> &'static [&'static str] {
-        get_tag_values(RegistryKey::Block, "minecraft:beds").unwrap()
-    }
-}
+#[pumpkin_block_from_tag("minecraft:beds")]
+pub struct BedBlock;
 
 #[async_trait]
 impl PumpkinBlock for BedBlock {
@@ -105,7 +137,7 @@ impl PumpkinBlock for BedBlock {
     }
 
     #[allow(clippy::too_many_lines)]
-    async fn normal_use(&self, args: NormalUseArgs<'_>) {
+    async fn normal_use(&self, args: NormalUseArgs<'_>) -> BlockActionResult {
         let state_id = args.world.get_block_state_id(args.position).await;
         let bed_props = BedProperties::from_state_id(state_id, args.block);
 
@@ -135,7 +167,7 @@ impl PumpkinBlock for BedBlock {
                 .explode(args.server, bed_head_pos.to_centered_f64(), 5.0)
                 .await;
 
-            return;
+            return BlockActionResult::Success;
         }
 
         // Make sure the bed is not obstructed
@@ -156,7 +188,7 @@ impl PumpkinBlock for BedBlock {
                     true,
                 )
                 .await;
-            return;
+            return BlockActionResult::Success;
         }
 
         // Make sure the bed is not occupied
@@ -169,7 +201,7 @@ impl PumpkinBlock for BedBlock {
                     true,
                 )
                 .await;
-            return;
+            return BlockActionResult::Success;
         }
 
         // Make sure player is close enough
@@ -188,7 +220,7 @@ impl PumpkinBlock for BedBlock {
                     true,
                 )
                 .await;
-            return;
+            return BlockActionResult::Success;
         }
 
         // Set respawn point
@@ -214,7 +246,7 @@ impl PumpkinBlock for BedBlock {
                     true,
                 )
                 .await;
-            return;
+            return BlockActionResult::Success;
         }
 
         // Make sure there are no monsters nearby
@@ -233,12 +265,14 @@ impl PumpkinBlock for BedBlock {
                         true,
                     )
                     .await;
-                return;
+                return BlockActionResult::Continue;
             }
         }
 
         args.player.sleep(bed_head_pos).await;
         Self::set_occupied(true, args.world, args.block, args.position, state_id).await;
+
+        BlockActionResult::Success
     }
 }
 
@@ -294,45 +328,5 @@ async fn can_sleep(world: &Arc<World>) -> bool {
 }
 
 fn entity_prevents_sleep(entity: &Entity) -> bool {
-    match entity.entity_type {
-        EntityType::BLAZE
-        | EntityType::BOGGED
-        | EntityType::SKELETON
-        | EntityType::STRAY
-        | EntityType::WITHER_SKELETON
-        | EntityType::BREEZE
-        | EntityType::CREAKING
-        | EntityType::CREEPER
-        | EntityType::DROWNED
-        | EntityType::ENDERMITE
-        | EntityType::EVOKER
-        | EntityType::GIANT
-        | EntityType::GUARDIAN
-        | EntityType::ELDER_GUARDIAN
-        | EntityType::ILLUSIONER
-        | EntityType::OCELOT
-        | EntityType::PIGLIN
-        | EntityType::PIGLIN_BRUTE
-        | EntityType::PILLAGER
-        | EntityType::PHANTOM
-        | EntityType::RAVAGER
-        | EntityType::SILVERFISH
-        | EntityType::SPIDER
-        | EntityType::CAVE_SPIDER
-        | EntityType::VEX
-        | EntityType::VINDICATOR
-        | EntityType::WARDEN
-        | EntityType::WITCH
-        | EntityType::WITHER
-        | EntityType::ZOGLIN
-        | EntityType::ZOMBIE
-        | EntityType::ZOMBIE_VILLAGER
-        | EntityType::HUSK => true,
-        EntityType::ENDERMAN | EntityType::ZOMBIFIED_PIGLIN => {
-            // TODO: Only when hostile
-            #[allow(clippy::match_same_arms)]
-            true
-        }
-        _ => false,
-    }
+    NO_SLEEP_IDS.contains(&entity.entity_type.id)
 }

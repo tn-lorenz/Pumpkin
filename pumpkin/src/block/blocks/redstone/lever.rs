@@ -4,7 +4,7 @@ use crate::block::{
     blocks::abstruct_wall_mounting::WallMountedBlock,
     pumpkin_block::{
         CanPlaceAtArgs, EmitsRedstonePowerArgs, GetRedstonePowerArgs,
-        GetStateForNeighborUpdateArgs, OnPlaceArgs, OnStateReplacedArgs, UseWithItemArgs,
+        GetStateForNeighborUpdateArgs, OnPlaceArgs, OnStateReplacedArgs,
     },
 };
 use async_trait::async_trait;
@@ -25,9 +25,9 @@ use crate::{
 };
 
 async fn toggle_lever(world: &Arc<World>, block_pos: &BlockPos) {
-    let (block, state) = world.get_block_and_block_state(block_pos).await;
+    let (block, state) = world.get_block_and_state_id(block_pos).await;
 
-    let mut lever_props = LeverLikeProperties::from_state_id(state.id, block);
+    let mut lever_props = LeverLikeProperties::from_state_id(state, block);
     lever_props.powered = !lever_props.powered;
     world
         .set_block_state(
@@ -45,13 +45,10 @@ pub struct LeverBlock;
 
 #[async_trait]
 impl PumpkinBlock for LeverBlock {
-    async fn use_with_item(&self, args: UseWithItemArgs<'_>) -> BlockActionResult {
+    async fn normal_use(&self, args: NormalUseArgs<'_>) -> BlockActionResult {
         toggle_lever(args.world, args.position).await;
-        BlockActionResult::Consume
-    }
 
-    async fn normal_use(&self, args: NormalUseArgs<'_>) {
-        toggle_lever(args.world, args.position).await;
+        BlockActionResult::Success
     }
 
     async fn emits_redstone_power(&self, _args: EmitsRedstonePowerArgs<'_>) -> bool {

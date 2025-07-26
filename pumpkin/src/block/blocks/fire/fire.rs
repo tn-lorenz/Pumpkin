@@ -37,8 +37,7 @@ impl FireBlock {
     }
 
     fn is_flammable(block_state: &BlockState) -> bool {
-        if block_state
-            .block()
+        if Block::from_state_id(block_state.id)
             .properties(block_state.id)
             .and_then(|props| {
                 props
@@ -51,8 +50,7 @@ impl FireBlock {
         {
             return false;
         }
-        block_state
-            .block()
+        Block::from_state_id(block_state.id)
             .flammable
             .as_ref()
             .is_some_and(|f| f.burn_chance > 0)
@@ -76,16 +74,15 @@ impl FireBlock {
     pub async fn get_state_for_position(
         &self,
         world: &World,
-        _block: &Block,
+        block: &Block,
         pos: &BlockPos,
     ) -> BlockStateId {
         let down_pos = pos.down();
         let down_state = world.get_block_state(&down_pos).await;
         if Self::is_flammable(down_state) || down_state.is_side_solid(BlockDirection::Up) {
-            return Block::FIRE.default_state.id;
+            return block.default_state.id;
         }
-        let mut fire_props =
-            FireProperties::from_state_id(Block::FIRE.default_state.id, &Block::FIRE);
+        let mut fire_props = FireProperties::from_state_id(block.default_state.id, block);
         for direction in BlockDirection::all() {
             let neighbor_pos = pos.offset(direction.to_offset());
             let neighbor_state = world.get_block_state(&neighbor_pos).await;
@@ -100,7 +97,7 @@ impl FireBlock {
                 }
             }
         }
-        fire_props.to_state_id(&Block::FIRE)
+        fire_props.to_state_id(block)
     }
 
     pub async fn try_spreading_fire(

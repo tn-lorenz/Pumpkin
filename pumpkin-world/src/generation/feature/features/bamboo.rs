@@ -1,8 +1,6 @@
 use pumpkin_data::{
-    Block, BlockDirection,
-    block_properties::{
-        BambooLeaves, BambooLikeProperties, BlockProperties, Integer0To1, get_state_by_state_id,
-    },
+    Block, BlockDirection, BlockState,
+    block_properties::{BambooLeaves, BambooLikeProperties, BlockProperties, Integer0To1},
     tag::Tagable,
 };
 use pumpkin_util::{
@@ -20,7 +18,7 @@ pub struct BambooFeature {
 
 impl BambooFeature {
     #[expect(clippy::too_many_arguments)]
-    pub async fn generate(
+    pub fn generate(
         &self,
         chunk: &mut ProtoChunk<'_>,
         block_registry: &dyn BlockRegistryExt,
@@ -32,10 +30,7 @@ impl BambooFeature {
     ) -> bool {
         let mut i = 0;
         if chunk.is_air(&pos.0) {
-            if block_registry
-                .can_place_at(&Block::BAMBOO, chunk, &pos, BlockDirection::Up)
-                .await
-            {
+            if block_registry.can_place_at(&Block::BAMBOO, chunk, &pos, BlockDirection::Up) {
                 let height = random.next_bounded_i32(12) + 5;
                 if random.next_f32() < self.probability {
                     let rnd = random.next_bounded_i32(4) + 1;
@@ -43,7 +38,7 @@ impl BambooFeature {
                         for z in pos.0.z - rnd..pos.0.z + rnd {
                             let block_below = BlockPos::new(
                                 x,
-                                chunk.top_block_height_exclusive(&Vector2::new(x, z)) as i32 - 1,
+                                chunk.top_block_height_exclusive(&Vector2::new(x, z)) - 1,
                                 z,
                             );
                             let block = chunk.get_block_state(&block_below.0);
@@ -72,19 +67,19 @@ impl BambooFeature {
 
                     chunk.set_block_state(
                         &bpos.0,
-                        get_state_by_state_id(props.to_state_id(&Block::BAMBOO)).unwrap(),
+                        BlockState::from_id(props.to_state_id(&Block::BAMBOO)),
                     );
                     props.stage = Integer0To1::L0;
 
                     chunk.set_block_state(
                         &bpos.down().0,
-                        get_state_by_state_id(props.to_state_id(&Block::BAMBOO)).unwrap(),
+                        BlockState::from_id(props.to_state_id(&Block::BAMBOO)),
                     );
                     props.leaves = BambooLeaves::Small;
 
                     chunk.set_block_state(
                         &bpos.down().down().0,
-                        get_state_by_state_id(props.to_state_id(&Block::BAMBOO)).unwrap(),
+                        BlockState::from_id(props.to_state_id(&Block::BAMBOO)),
                     );
                 }
             }
